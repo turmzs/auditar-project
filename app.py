@@ -1,0 +1,1012 @@
+"""
+AUDITAR CONTABILIDADE - Versão Padrão
+"""
+
+import sys
+import os
+import sqlite3
+import json
+import asyncio
+from datetime import datetime
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QPushButton, QLineEdit, QComboBox, QTableWidget, QTableWidgetItem,
+    QTabWidget, QFrame, QFileDialog, QMessageBox, QProgressBar,
+    QDialog, QFormLayout, QSpinBox, QDoubleSpinBox, QTextEdit,
+    QGroupBox, QRadioButton, QButtonGroup, QGridLayout, QScrollArea,
+    QColorDialog, QPushButton,
+)
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QFont, QColor
+from pptx.dml.color import RGBColor
+
+# Importar calculadora de impostos
+sys.path.append(os.path.join(os.path.dirname(__file__), 'assets'))
+from calculadora_impostos import CalculadoraImpostos
+
+# Adicionar paths
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets"))
+
+# ============================================================
+# FUNÇÃO PARA CARREGAR RECURSOS (imagens, arquivos, etc)
+# Funciona tanto em desenvolvimento quanto no executável PyInstaller
+# ============================================================
+def get_resource_path(relative_path):
+    """Retorna caminho absoluto para recursos, funcionando no .exe ou desenvolvimento"""
+    if hasattr(sys, '_MEIPASS'):
+        # Está rodando do executável PyInstaller
+        base_path = sys._MEIPASS
+    else:
+        # Está rodando em desenvolvimento
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    
+    return os.path.join(base_path, relative_path)
+
+# Caminho da logo (já incluso automaticamente)
+LOGO_PATH = get_resource_path(os.path.join("assets", "logo_auditar.png"))
+print(f"📁 Logo carregada de: {LOGO_PATH}")
+
+from assets.gerar_apresentacao_pdf_estilo import gerar_apresentacao_pptx_pdf
+from assets.slide_templates import OPCOES_CORES
+
+try:
+    from assets.gerador_ia_inteligente import GeradorIAInteligente, gerar_apresentacao_ia
+    IA_INTELIGENTE_DISPONIVEL = True
+except ImportError:
+    IA_INTELIGENTE_DISPONIVEL = False
+
+
+class DatabaseManager:
+    def __init__(self, db_path="data/contabilidade.db"):
+        self.db_path = db_path
+        os.makedirs(os.path.dirname(db_path) if os.path.dirname(db_path) else ".", exist_ok=True)
+        self.init_database()
+
+    def init_database(self):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS empresas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome TEXT NOT NULL,
+                cnpj TEXT,
+                responsavel TEXT,
+                cidade TEXT,
+                estado TEXT,
+                regime_tributario TEXT DEFAULT 'simples',
+                data_cadastro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # Verificar e adicionar coluna regime_tributario se não existir (migração)
+        cursor.execute("PRAGMA table_info(empresas)")
+        colunas = [col[1] for col in cursor.fetchall()]
+        if 'regime_tributario' not in colunas:
+            cursor.execute("ALTER TABLE empresas ADD COLUMN regime_tributario TEXT DEFAULT 'simples'")
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS dados_mensais (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                empresa_id INTEGER,
+                mes INTEGER,
+                ano INTEGER,
+                receita_bruta REAL DEFAULT 0,
+                -- CUSTOS DETALHADOS
+                custo_salarios REAL DEFAULT 0,
+                custo_aluguel REAL DEFAULT 0,
+                custo_outros REAL DEFAULT 0,
+                -- DESPESAS DETALHADAS
+                despesa_agua_luz_tel REAL DEFAULT 0,
+                despesa_material REAL DEFAULT 0,
+                despesa_outros REAL DEFAULT 0,
+                -- TOTAIS
+                custos REAL DEFAULT 0,
+                despesas REAL DEFAULT 0,
+                impostos REAL DEFAULT 0,
+                lucro_operacional REAL DEFAULT 0,
+                FOREIGN KEY (empresa_id) REFERENCES empresas(id)
+            )
+        ''')
+        conn.commit()
+        conn.close()
+
+    def execute(self, query, params=()):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        conn.commit()
+        conn.close()
+
+    def fetchall(self, query, params=()):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        results = cursor.fetchall()
+        conn.close()
+        return results
+
+    def fetchone(self, query, params=()):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        result = cursor.fetchone()
+        conn.close()
+        return result
+
+
+class GeradorPPTXThread(QThread):
+    progress = pyqtSignal(int)
+    finished = pyqtSignal(bool, str)
+
+    def __init__(self, dados_mensais, nome_empresa, responsavel, bundle_dir, use_ia=False, comando_ia="", tema_cores=None, cores_personalizadas=None):
+        super().__init__()
+        self.dados_mensais = dados_mensais
+        self.nome_empresa = nome_empresa
+        self.responsavel = responsavel
+        self.bundle_dir = bundle_dir
+        self.use_ia = use_ia
+        self.comando_ia = comando_ia
+        self.tema_cores = tema_cores
+        self.cores_personalizadas = cores_personalizadas
+
+    def run(self):
+        try:
+            self.progress.emit(20)
+            if self.use_ia and IA_INTELIGENTE_DISPONIVEL:
+                # Preparar cores personalizadas se tema for personalizado
+                cores_ia = None
+                if self.tema_cores == "personalizado":
+                    cores_ia = self.cores_personalizadas
+                    print(f"🎨 Usando cores personalizadas com IA")
+
+                filepath = asyncio.run(gerar_apresentacao_ia(
+                    dados_mensais=self.dados_mensais,
+                    nome_empresa=self.nome_empresa,
+                    responsavel=self.responsavel,
+                    bundle_dir=self.bundle_dir,
+                    comando_estilo=self.comando_ia,
+                    cores_personalizadas=cores_ia
+                ))
+            else:
+                # Usar tema de cores pré-definido ou personalizadas
+                from assets.slide_templates import OPCOES_CORES
+                cores_personalizadas = None
+
+                if self.tema_cores == "personalizado":
+                    # Usar cores personalizadas selecionadas pelo usuário
+                    cores_personalizadas = self.cores_personalizadas
+                    print(f"🎨 Usando cores personalizadas")
+                elif self.tema_cores and self.tema_cores in OPCOES_CORES:
+                    # Usar tema pré-definido
+                    _, cores_personalizadas = OPCOES_CORES[self.tema_cores]
+                    print(f"🎨 Usando tema: {self.tema_cores}")
+
+                filepath = gerar_apresentacao_pptx_pdf(
+                    self.dados_mensais, self.nome_empresa, self.responsavel, self.bundle_dir, cores_personalizadas
+                )
+            self.progress.emit(100)
+            self.finished.emit(True, filepath)
+        except Exception as e:
+            self.finished.emit(False, str(e))
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Auditar Planejamento Tributário")
+        self.setGeometry(100, 100, 900, 700)
+        
+        self.db = DatabaseManager()
+        
+        # Widget central com abas
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        
+        layout = QVBoxLayout(self.central_widget)
+        layout.setSpacing(10)
+        layout.setContentsMargins(10, 10, 10, 10)
+        
+        # Título
+        titulo = QLabel("Auditar Planejamento Tributário")
+        titulo.setFont(QFont("Arial", 16, QFont.Weight.Bold))
+        titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(titulo)
+        
+        # Abas
+        self.tabs = QTabWidget()
+        layout.addWidget(self.tabs)
+        
+        # Criar paginas
+        self.criar_aba_empresas()
+        self.criar_aba_dados()
+        self.criar_aba_dashboard()
+        self.criar_aba_relatorios()
+        
+        self.atualizar_lista_empresas()
+
+    def criar_aba_empresas(self):
+        page = QWidget()
+        self.tabs.addTab(page, "Empresas")
+        layout = QVBoxLayout(page)
+        layout.setSpacing(10)
+        
+        # Grupo: Nova Empresa
+        grupo_novo = QGroupBox("Cadastrar Nova Empresa")
+        layout.addWidget(grupo_novo)
+        
+        form = QFormLayout(grupo_novo)
+        
+        self.txt_nome = QLineEdit()
+        self.txt_cnpj = QLineEdit()
+        self.txt_responsavel = QLineEdit()
+        self.txt_cidade = QLineEdit()
+        self.txt_estado = QLineEdit()
+        self.combo_regime = QComboBox()
+        self.combo_regime.addItem("Simples Nacional", "simples")
+        self.combo_regime.addItem("Lucro Presumido", "presumido")
+        self.combo_regime.addItem("Lucro Real", "real")
+
+        form.addRow("Nome:", self.txt_nome)
+        form.addRow("CNPJ:", self.txt_cnpj)
+        form.addRow("Responsavel:", self.txt_responsavel)
+        form.addRow("Cidade:", self.txt_cidade)
+        form.addRow("Estado:", self.txt_estado)
+        form.addRow("Regime Tributário:", self.combo_regime)
+        
+        btn_salvar = QPushButton("Salvar Empresa")
+        btn_salvar.clicked.connect(self.salvar_empresa)
+        form.addRow(btn_salvar)
+        
+        # Grupo: Lista de Empresas
+        grupo_lista = QGroupBox("Empresas Cadastradas")
+        layout.addWidget(grupo_lista, stretch=1)
+        
+        lista_layout = QVBoxLayout(grupo_lista)
+        
+        self.tabela_empresas = QTableWidget()
+        self.tabela_empresas.setColumnCount(5)
+        self.tabela_empresas.setHorizontalHeaderLabels(["ID", "Nome", "CNPJ", "Responsavel", "Acao"])
+        lista_layout.addWidget(self.tabela_empresas)
+
+    def criar_aba_dados(self):
+        page = QWidget()
+        self.tabs.addTab(page, "Dados Mensais")
+        layout = QVBoxLayout(page)
+        layout.setSpacing(10)
+        
+        # Selecionar empresa
+        selecao_layout = QHBoxLayout()
+        selecao_layout.addWidget(QLabel("Empresa:"))
+        self.combo_empresa_dados = QComboBox()
+        self.combo_empresa_dados.setMinimumWidth(300)
+        selecao_layout.addWidget(self.combo_empresa_dados)
+        selecao_layout.addStretch()
+        layout.addLayout(selecao_layout)
+        
+        # Grupo: Novo Mes
+        grupo_novo = QGroupBox("Adicionar Mes")
+        layout.addWidget(grupo_novo)
+        
+        form = QFormLayout(grupo_novo)
+        
+        self.spin_mes = QSpinBox()
+        self.spin_mes.setRange(1, 12)
+        self.spin_ano = QSpinBox()
+        self.spin_ano.setRange(2020, 2030)
+        self.spin_ano.setValue(datetime.now().year)
+        
+        # === RECEITA ===
+        self.txt_receita = QLineEdit("0")
+        
+        # === CUSTOS DETALHADOS ===
+        self.txt_custo_salarios = QLineEdit("0")
+        self.txt_custo_aluguel = QLineEdit("0")
+        self.txt_custo_outros = QLineEdit("0")
+        self.txt_custos_total = QLineEdit("0")
+        self.txt_custos_total.setReadOnly(True)
+        self.txt_custos_total.setStyleSheet("background-color: #E8E8E8; color: #000000;")
+        
+        # === DESPESAS DETALHADAS ===
+        self.txt_despesa_agua_luz_tel = QLineEdit("0")
+        self.txt_despesa_material = QLineEdit("0")
+        self.txt_despesa_outros = QLineEdit("0")
+        self.txt_despesas_total = QLineEdit("0")
+        self.txt_despesas_total.setReadOnly(True)
+        self.txt_despesas_total.setStyleSheet("background-color: #E8E8E8; color: #000000;")
+        
+        # === IMPOSTOS E LUCRO ===
+        self.txt_impostos = QLineEdit("0")
+        self.txt_impostos.setReadOnly(True)
+        self.txt_impostos.setStyleSheet("background-color: #FFF3CD; color: #856404; font-weight: bold;")
+        self.txt_lucro = QLineEdit("0")
+        self.txt_lucro.setReadOnly(True)
+        self.txt_lucro.setStyleSheet("background-color: #D4EDDA; color: #155724; font-weight: bold;")
+
+        # Botão para calcular impostos automaticamente
+        self.btn_calcular_impostos = QPushButton("🧮 Calcular Impostos (Auto)")
+        self.btn_calcular_impostos.clicked.connect(self.calcular_impostos_automatico)
+        
+        # Conectar sinais para calcular automaticamente
+        campos_custos = [self.txt_custo_salarios, self.txt_custo_aluguel, self.txt_custo_outros]
+        campos_despesas = [self.txt_despesa_agua_luz_tel, self.txt_despesa_material, self.txt_despesa_outros]
+        
+        for campo in campos_custos:
+            campo.textChanged.connect(self.calcular_totais)
+        for campo in campos_despesas:
+            campo.textChanged.connect(self.calcular_totais)
+        
+        for campo in [self.txt_receita, self.txt_impostos]:
+            campo.textChanged.connect(self.calcular_totais)
+        
+        # === LAYOUT DO FORMULÁRIO ===
+        form.addRow("Mes:", self.spin_mes)
+        form.addRow("Ano:", self.spin_ano)
+        form.addRow("", QLabel(""))  # Espaço
+        
+        # Receita
+        form.addRow(QLabel("📥 RECEITA:"))
+        form.addRow("  Receita Bruta:", self.txt_receita)
+        form.addRow("", QLabel(""))  # Espaço
+        
+        # Custos Detalhados
+        form.addRow(QLabel("💼 CUSTOS (Detalhados):"))
+        form.addRow("  Salarios:", self.txt_custo_salarios)
+        form.addRow("  Aluguel:", self.txt_custo_aluguel)
+        form.addRow("  Outros Custos:", self.txt_custo_outros)
+        form.addRow("  TOTAL Custos:", self.txt_custos_total)
+        form.addRow("", QLabel(""))  # Espaço
+        
+        # Despesas Detalhadas
+        form.addRow(QLabel("📋 DESPESAS (Detalhadas):"))
+        form.addRow("  Agua/Luz/Telefone:", self.txt_despesa_agua_luz_tel)
+        form.addRow("  Material/Escritorio:", self.txt_despesa_material)
+        form.addRow("  Outras Despesas:", self.txt_despesa_outros)
+        form.addRow("  TOTAL Despesas:", self.txt_despesas_total)
+        form.addRow("", QLabel(""))  # Espaço
+        
+        # Impostos e Lucro
+        form.addRow(QLabel("💰 TRIBUTOS E RESULTADO:"))
+        form.addRow("  Impostos:", self.txt_impostos)
+        form.addRow("  LUCRO OPERACIONAL:", self.txt_lucro)
+        form.addRow("", self.btn_calcular_impostos)
+        
+        btn_adicionar = QPushButton("Adicionar Mes")
+        btn_adicionar.clicked.connect(self.adicionar_dados_mensais)
+        form.addRow(btn_adicionar)
+        
+        # Grupo: Dados
+        grupo_dados = QGroupBox("Dados Mensais Cadastrados")
+        layout.addWidget(grupo_dados, stretch=1)
+        
+        dados_layout = QVBoxLayout(grupo_dados)
+        self.tabela_dados = QTableWidget()
+        self.tabela_dados.setColumnCount(7)
+        self.tabela_dados.setHorizontalHeaderLabels(["Mes/Ano", "Receita", "Custos*", "Despesas*", "Impostos", "Lucro", "Acao"])
+        self.tabela_dados.setToolTip("* Custos e Despesas com detalhamento completo (salários, aluguel, água/luz, etc.)")
+        dados_layout.addWidget(self.tabela_dados)
+
+    def criar_aba_dashboard(self):
+        page = QWidget()
+        self.tabs.addTab(page, "Dashboard")
+        layout = QVBoxLayout(page)
+        layout.setSpacing(15)
+
+        # Selecionar empresa
+        selecao_layout = QHBoxLayout()
+        selecao_layout.addWidget(QLabel("Empresa:"))
+        self.combo_empresa_dash = QComboBox()
+        self.combo_empresa_dash.setMinimumWidth(300)
+        self.combo_empresa_dash.currentIndexChanged.connect(self.atualizar_dashboard)
+        selecao_layout.addWidget(self.combo_empresa_dash)
+        selecao_layout.addStretch()
+        layout.addLayout(selecao_layout)
+
+        # Container para gráficos
+        self.graficos_container = QWidget()
+        layout.addWidget(self.graficos_container, stretch=1)
+
+        # Layout para gráficos
+        graficos_layout = QVBoxLayout(self.graficos_container)
+
+        # Tentar importar matplotlib
+        try:
+            from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+            from matplotlib.figure import Figure
+            import matplotlib.pyplot as plt
+
+            self.figure = Figure(figsize=(12, 8))
+            self.canvas = FigureCanvas(self.figure)
+            graficos_layout.addWidget(self.canvas)
+            self.matplotlib_disponivel = True
+        except ImportError as e:
+            # Matplotlib não está instalado
+            self.lbl_sem_matplotlib = QLabel("Matplotlib não está instalado.\nPara usar o Dashboard, instale com: pip install matplotlib")
+            self.lbl_sem_matplotlib.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.lbl_sem_matplotlib.setStyleSheet("font-size: 14px; color: #dc3545; padding: 20px;")
+            graficos_layout.addWidget(self.lbl_sem_matplotlib)
+            self.matplotlib_disponivel = False
+            self.canvas = None
+
+        # Label de mensagem quando não há dados
+        self.lbl_sem_dados = QLabel("Selecione uma empresa para visualizar o dashboard")
+        self.lbl_sem_dados.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_sem_dados.setStyleSheet("font-size: 16px; color: #666;")
+        layout.addWidget(self.lbl_sem_dados)
+
+        # Inicialmente esconder o canvas
+        if self.canvas:
+            self.canvas.hide()
+
+    def atualizar_dashboard(self):
+        """Atualiza o dashboard com os dados da empresa selecionada"""
+        # Verificar se matplotlib está disponível
+        if not self.matplotlib_disponivel:
+            self.lbl_sem_dados.hide()
+            if hasattr(self, 'lbl_sem_matplotlib'):
+                self.lbl_sem_matplotlib.show()
+            return
+
+        empresa_id = self.combo_empresa_dash.currentData()
+        if not empresa_id:
+            self.lbl_sem_dados.setText("Selecione uma empresa para visualizar o dashboard")
+            self.lbl_sem_dados.show()
+            self.canvas.hide()
+            return
+
+        # Buscar dados mensais da empresa
+        dados = self.db.fetchall(
+            "SELECT mes, ano, receita_bruta, custos, despesas, impostos, lucro_operacional "
+            "FROM dados_mensais WHERE empresa_id = ? ORDER BY ano, mes",
+            (empresa_id,)
+        )
+
+        if not dados:
+            self.lbl_sem_dados.setText("Nenhum dado mensal cadastrado para esta empresa.\nAdicione dados na aba 'Dados Mensais' primeiro.")
+            self.lbl_sem_dados.show()
+            self.canvas.hide()
+            return
+
+        self.lbl_sem_dados.hide()
+        if hasattr(self, 'lbl_sem_matplotlib'):
+            self.lbl_sem_matplotlib.hide()
+        self.canvas.show()
+
+        # Preparar dados para o gráfico
+        meses = [f"{d[0]}/{d[1]}" for d in dados]
+        receita = [d[2] for d in dados]
+        custos = [d[3] for d in dados]
+        despesas = [d[4] for d in dados]
+        lucro = [d[6] for d in dados]
+
+        # Limpar figura anterior
+        self.figure.clear()
+
+        # Criar subplots
+        ax1 = self.figure.add_subplot(2, 1, 1)
+        ax2 = self.figure.add_subplot(2, 1, 2)
+
+        # Gráfico 1: Receita vs Custos vs Despesas
+        ax1.plot(meses, receita, marker='o', label='Receita', color='green', linewidth=2)
+        ax1.plot(meses, custos, marker='s', label='Custos', color='red', linewidth=2)
+        ax1.plot(meses, despesas, marker='^', label='Despesas', color='orange', linewidth=2)
+        ax1.set_title('Receita, Custos e Despesas por Mês', fontsize=12, fontweight='bold')
+        ax1.set_ylabel('Valor (R$)', fontsize=10)
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        ax1.tick_params(axis='x', rotation=45)
+
+        # Gráfico 2: Lucro Operacional
+        ax2.bar(meses, lucro, color='blue' if all(l >= 0 for l in lucro) else 'red', alpha=0.7)
+        ax2.set_title('Lucro Operacional por Mês', fontsize=12, fontweight='bold')
+        ax2.set_ylabel('Lucro (R$)', fontsize=10)
+        ax2.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
+        ax2.grid(True, alpha=0.3)
+        ax2.tick_params(axis='x', rotation=45)
+
+        self.figure.tight_layout()
+        self.canvas.draw()
+
+    def criar_aba_relatorios(self):
+        page = QWidget()
+        self.tabs.addTab(page, "Relatorios")
+        layout = QVBoxLayout(page)
+        layout.setSpacing(15)
+        
+        # Selecionar empresa
+        selecao_layout = QHBoxLayout()
+        selecao_layout.addWidget(QLabel("Empresa:"))
+        self.combo_empresa_rel = QComboBox()
+        self.combo_empresa_rel.setMinimumWidth(300)
+        selecao_layout.addWidget(self.combo_empresa_rel)
+        selecao_layout.addStretch()
+        layout.addLayout(selecao_layout)
+        
+        # Opcoes de relatorio
+        grupo_opcoes = QGroupBox("Tipo de Relatorio")
+        layout.addWidget(grupo_opcoes)
+        
+        opcoes_layout = QVBoxLayout(grupo_opcoes)
+        
+        self.radio_pdf = QRadioButton("Apresentacao PPTX (Padrao)")
+        self.radio_pdf.setChecked(True)
+        opcoes_layout.addWidget(self.radio_pdf)
+        
+        # Seletor de Tema/Cores
+        tema_layout = QHBoxLayout()
+        tema_layout.addWidget(QLabel("Tema de Cores:"))
+        self.combo_tema = QComboBox()
+        self.combo_tema.setMinimumWidth(280)
+        
+        # Adicionar opções de cores pré-definidas
+        for key, (nome, _) in OPCOES_CORES.items():
+            self.combo_tema.addItem(nome, key)
+        
+        # Adicionar opção de cores personalizadas
+        self.combo_tema.addItem("🎨 Cores Personalizadas", "personalizado")
+
+        tema_layout.addWidget(self.combo_tema)
+        tema_layout.addStretch()
+        opcoes_layout.addLayout(tema_layout)
+
+        # Seletor de Cores Personalizadas (inicialmente oculto)
+        self.grupo_cores_personalizadas = QGroupBox("Cores Personalizadas")
+        self.grupo_cores_personalizadas.setVisible(False)
+        opcoes_layout.addWidget(self.grupo_cores_personalizadas)
+
+        cores_layout = QGridLayout(self.grupo_cores_personalizadas)
+
+        # Cor de Fundo
+        cores_layout.addWidget(QLabel("Fundo:"), 0, 0)
+        self.btn_cor_fundo = QPushButton("Selecionar")
+        self.btn_cor_fundo.clicked.connect(self.selecionar_cor_fundo)
+        self.btn_cor_fundo.setStyleSheet("background-color: #FFFFFF; min-width: 100px;")
+        cores_layout.addWidget(self.btn_cor_fundo, 0, 1)
+        self.cor_fundo = RGBColor(255, 255, 255)  # Branco padrão
+
+        # Cor do Header
+        cores_layout.addWidget(QLabel("Header:"), 1, 0)
+        self.btn_cor_header = QPushButton("Selecionar")
+        self.btn_cor_header.clicked.connect(self.selecionar_cor_header)
+        self.btn_cor_header.setStyleSheet("background-color: #000080; color: white; min-width: 100px;")
+        cores_layout.addWidget(self.btn_cor_header, 1, 1)
+        self.cor_header = RGBColor(0, 0, 128)  # Azul escuro padrão
+
+        # Cor do Footer
+        cores_layout.addWidget(QLabel("Footer:"), 2, 0)
+        self.btn_cor_footer = QPushButton("Selecionar")
+        self.btn_cor_footer.clicked.connect(self.selecionar_cor_footer)
+        self.btn_cor_footer.setStyleSheet("background-color: #000080; color: white; min-width: 100px;")
+        cores_layout.addWidget(self.btn_cor_footer, 2, 1)
+        self.cor_footer = RGBColor(0, 0, 128)  # Azul escuro padrão
+
+        # Cor do Texto
+        cores_layout.addWidget(QLabel("Texto:"), 3, 0)
+        self.btn_cor_texto = QPushButton("Selecionar")
+        self.btn_cor_texto.clicked.connect(self.selecionar_cor_texto)
+        self.btn_cor_texto.setStyleSheet("background-color: #000000; color: white; min-width: 100px;")
+        cores_layout.addWidget(self.btn_cor_texto, 3, 1)
+        self.cor_texto = RGBColor(0, 0, 0)  # Preto padrão
+
+        # Cor de Destaque
+        cores_layout.addWidget(QLabel("Destaque:"), 4, 0)
+        self.btn_cor_destaque = QPushButton("Selecionar")
+        self.btn_cor_destaque.clicked.connect(self.selecionar_cor_destaque)
+        self.btn_cor_destaque.setStyleSheet("background-color: #D4AF37; color: white; min-width: 100px;")
+        cores_layout.addWidget(self.btn_cor_destaque, 4, 1)
+        self.cor_destaque = RGBColor(212, 175, 55)  # Dourado padrão
+
+        # Conectar mudança no combo para mostrar/ocultar cores personalizadas
+        self.combo_tema.currentIndexChanged.connect(self.on_tema_changed)
+        
+        self.radio_ia = QRadioButton("Apresentacao com IA Inteligente (requer Ollama)")
+        opcoes_layout.addWidget(self.radio_ia)
+        
+        # Comando IA
+        opcoes_layout.addWidget(QLabel("Comando para IA (opcional):"))
+        self.txt_comando_ia = QTextEdit()
+        self.txt_comando_ia.setMaximumHeight(60)
+        self.txt_comando_ia.setPlaceholderText("Ex: Elegante com fundo branco, titulos em dourado...")
+        opcoes_layout.addWidget(self.txt_comando_ia)
+        
+        # Botao gerar
+        layout.addSpacing(20)
+        btn_gerar = QPushButton("GERAR APRESENTACAO PPTX")
+        btn_gerar.setMinimumHeight(40)
+        btn_gerar.clicked.connect(self.gerar_relatorio)
+        layout.addWidget(btn_gerar)
+        
+        # Progresso
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        layout.addWidget(self.progress_bar)
+        
+        layout.addStretch()
+
+    def salvar_empresa(self):
+        nome = self.txt_nome.text().strip()
+        if not nome:
+            QMessageBox.warning(self, "Aviso", "Digite o nome da empresa")
+            return
+
+        regime = self.combo_regime.currentData()
+
+        self.db.execute(
+            "INSERT INTO empresas (nome, cnpj, responsavel, cidade, estado, regime_tributario) VALUES (?, ?, ?, ?, ?, ?)",
+            (nome, self.txt_cnpj.text(), self.txt_responsavel.text(),
+             self.txt_cidade.text(), self.txt_estado.text(), regime)
+        )
+
+        self.txt_nome.clear()
+        self.txt_cnpj.clear()
+        self.txt_responsavel.clear()
+        self.txt_cidade.clear()
+        self.txt_estado.clear()
+        
+        self.atualizar_lista_empresas()
+        QMessageBox.information(self, "Sucesso", "Empresa cadastrada!")
+
+    def atualizar_lista_empresas(self):
+        empresas = self.db.fetchall("SELECT id, nome, cnpj, responsavel FROM empresas ORDER BY nome")
+        
+        self.tabela_empresas.setRowCount(len(empresas))
+        for i, emp in enumerate(empresas):
+            for j, val in enumerate(emp):
+                self.tabela_empresas.setItem(i, j, QTableWidgetItem(str(val)))
+            
+            btn_excluir = QPushButton("Excluir")
+            btn_excluir.clicked.connect(lambda checked, id=emp[0]: self.excluir_empresa(id))
+            self.tabela_empresas.setCellWidget(i, 4, btn_excluir)
+        
+        # Atualizar combos
+        self.combo_empresa_dados.clear()
+        self.combo_empresa_rel.clear()
+        self.combo_empresa_dash.clear()
+        for emp in empresas:
+            texto = f"{emp[1]} (CNPJ: {emp[2] or 'N/A'})"
+            self.combo_empresa_dados.addItem(texto, emp[0])
+            self.combo_empresa_rel.addItem(texto, emp[0])
+            self.combo_empresa_dash.addItem(texto, emp[0])
+
+    def excluir_empresa(self, empresa_id):
+        resposta = QMessageBox.question(self, "Confirmar", "Deseja excluir esta empresa?")
+        if resposta == QMessageBox.StandardButton.Yes:
+            self.db.execute("DELETE FROM dados_mensais WHERE empresa_id = ?", (empresa_id,))
+            self.db.execute("DELETE FROM empresas WHERE id = ?", (empresa_id,))
+            self.atualizar_lista_empresas()
+
+    def calcular_totais(self):
+        """Calcula totais de custos, despesas e lucro automaticamente"""
+        try:
+            # Custos detalhados
+            salarios = float(self.txt_custo_salarios.text() or 0)
+            aluguel = float(self.txt_custo_aluguel.text() or 0)
+            outros_custos = float(self.txt_custo_outros.text() or 0)
+            total_custos = salarios + aluguel + outros_custos
+            self.txt_custos_total.setText(f"{total_custos:.2f}")
+
+            # Despesas detalhadas
+            agua_luz_tel = float(self.txt_despesa_agua_luz_tel.text() or 0)
+            material = float(self.txt_despesa_material.text() or 0)
+            outras_despesas = float(self.txt_despesa_outros.text() or 0)
+            total_despesas = agua_luz_tel + material + outras_despesas
+            self.txt_despesas_total.setText(f"{total_despesas:.2f}")
+
+            # Lucro
+            receita = float(self.txt_receita.text() or 0)
+            impostos = float(self.txt_impostos.text() or 0)
+            lucro = receita - total_custos - total_despesas - impostos
+            self.txt_lucro.setText(f"{lucro:.2f}")
+        except ValueError:
+            self.txt_custos_total.setText("0")
+            self.txt_despesas_total.setText("0")
+            self.txt_lucro.setText("0")
+
+    def calcular_impostos_automatico(self):
+        """Calcula impostos automaticamente baseado no regime tributário da empresa"""
+        empresa_id = self.combo_empresa_dados.currentData()
+        if not empresa_id:
+            QMessageBox.warning(self, "Aviso", "Selecione uma empresa primeiro")
+            return
+
+        # Buscar regime tributário da empresa
+        empresa = self.db.fetchone(
+            "SELECT regime_tributario FROM empresas WHERE id = ?",
+            (empresa_id,)
+        )
+
+        if not empresa:
+            QMessageBox.warning(self, "Erro", "Empresa não encontrada")
+            return
+
+        regime = empresa[0]
+
+        # Pegar receita bruta
+        try:
+            receita = float(self.txt_receita.text() or 0)
+        except ValueError:
+            QMessageBox.warning(self, "Erro", "Digite um valor válido para receita bruta")
+            return
+
+        # Pegar custos e despesas (para lucro real)
+        try:
+            custos = float(self.txt_custos_total.text() or 0)
+            despesas = float(self.txt_despesas_total.text() or 0)
+        except ValueError:
+            custos = 0
+            despesas = 0
+
+        # Calcular impostos
+        try:
+            calc = CalculadoraImpostos()
+            # Para Lucro Presumido, usar 'servicos' como padrão (pode ser ajustado no futuro)
+            tipo_atividade = 'servicos' if regime == 'presumido' else 'comercio'
+            resultado = calc.calcular_impostos(
+                receita_bruta=receita,
+                regime=regime,
+                custos=custos,
+                despesas=despesas,
+                tipo_atividade=tipo_atividade
+            )
+
+            # Preencher campo de impostos
+            self.txt_impostos.setText(f"{resultado['total_impostos']:.2f}")
+
+            # Mostrar detalhes
+            detalhes = f"""
+Regime: {resultado['regime']}
+{resultado['descricao']}
+
+Detalhamento:
+"""
+            if regime == 'simples':
+                detalhes += f"Faixa: {resultado['faixa']}\n"
+                detalhes += f"Alíquota Nominal: {resultado['aliquota_nominal']:.1f}%\n"
+                detalhes += f"Parcela a Deduzir (mensal): R$ {resultado['parcela_deduzir_mensal']:.2f}\n"
+                detalhes += f"DAS: R$ {resultado['das']:.2f}\n"
+                if resultado['iss'] > 0:
+                    detalhes += f"ISS (estimado): R$ {resultado['iss']:.2f}\n"
+                if resultado['icms'] > 0:
+                    detalhes += f"ICMS (estimado): R$ {resultado['icms']:.2f}\n"
+            elif regime == 'presumido':
+                detalhes += f"Tipo de Atividade: {resultado['tipo_atividade']}\n"
+                detalhes += f"Base IRPJ: R$ {resultado['base_irpj']:.2f}\n"
+                detalhes += f"Base CSLL: R$ {resultado['base_csll']:.2f}\n"
+                detalhes += f"IRPJ: R$ {resultado['irpj']:.2f}\n"
+                detalhes += f"CSLL: R$ {resultado['csll']:.2f}\n"
+                detalhes += f"PIS: R$ {resultado['pis']:.2f}\n"
+                detalhes += f"COFINS: R$ {resultado['cofins']:.2f}\n"
+                detalhes += f"PIS/COFINS: R$ {resultado['pis_cofins']:.2f}\n"
+                if resultado['iss'] > 0:
+                    detalhes += f"ISS: R$ {resultado['iss']:.2f}\n"
+                if resultado['icms'] > 0:
+                    detalhes += f"ICMS: R$ {resultado['icms']:.2f}\n"
+            elif regime == 'real':
+                detalhes += f"Lucro Líquido: R$ {resultado['lucro_liquido']:.2f}\n"
+                detalhes += f"Base de Cálculo: R$ {resultado['base_calculo']:.2f}\n"
+                detalhes += f"IRPJ: R$ {resultado['irpj']:.2f}\n"
+                detalhes += f"CSLL: R$ {resultado['csll']:.2f}\n"
+                detalhes += f"PIS: R$ {resultado['pis']:.2f}\n"
+                detalhes += f"COFINS: R$ {resultado['cofins']:.2f}\n"
+                detalhes += f"PIS/COFINS: R$ {resultado['pis_cofins']:.2f}\n"
+                if resultado['iss'] > 0:
+                    detalhes += f"ISS: R$ {resultado['iss']:.2f}\n"
+                if resultado['icms'] > 0:
+                    detalhes += f"ICMS: R$ {resultado['icms']:.2f}\n"
+
+            detalhes += f"\nTotal de Impostos: R$ {resultado['total_impostos']:.2f}"
+
+            QMessageBox.information(self, "Cálculo de Impostos", detalhes)
+
+            # Recalcular lucro
+            self.calcular_totais()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Erro ao calcular impostos: {str(e)}")
+
+    def adicionar_dados_mensais(self):
+        empresa_id = self.combo_empresa_dados.currentData()
+        if not empresa_id:
+            QMessageBox.warning(self, "Aviso", "Selecione uma empresa")
+            return
+        
+        try:
+            # Receita
+            receita = float(self.txt_receita.text() or 0)
+            
+            # Custos detalhados
+            custo_salarios = float(self.txt_custo_salarios.text() or 0)
+            custo_aluguel = float(self.txt_custo_aluguel.text() or 0)
+            custo_outros = float(self.txt_custo_outros.text() or 0)
+            
+            # Despesas detalhadas
+            despesa_agua_luz_tel = float(self.txt_despesa_agua_luz_tel.text() or 0)
+            despesa_material = float(self.txt_despesa_material.text() or 0)
+            despesa_outros = float(self.txt_despesa_outros.text() or 0)
+            
+            # Totais
+            custos = custo_salarios + custo_aluguel + custo_outros
+            despesas = despesa_agua_luz_tel + despesa_material + despesa_outros
+            
+            impostos = float(self.txt_impostos.text() or 0)
+            lucro = float(self.txt_lucro.text() or 0)
+        except ValueError:
+            QMessageBox.warning(self, "Erro", "Valores numericos invalidos")
+            return
+        
+        self.db.execute('''
+            INSERT INTO dados_mensais (
+                empresa_id, mes, ano, 
+                receita_bruta, 
+                custo_salarios, custo_aluguel, custo_outros,
+                despesa_agua_luz_tel, despesa_material, despesa_outros,
+                custos, despesas, impostos, lucro_operacional
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            empresa_id, self.spin_mes.value(), self.spin_ano.value(),
+            receita,
+            custo_salarios, custo_aluguel, custo_outros,
+            despesa_agua_luz_tel, despesa_material, despesa_outros,
+            custos, despesas, impostos, lucro
+        ))
+        
+        self.atualizar_tabela_dados(empresa_id)
+        self.limpar_campos_dados()
+        QMessageBox.information(self, "Sucesso", "Dados adicionados!")
+
+    def limpar_campos_dados(self):
+        """Limpa os campos de entrada após adicionar dados"""
+        self.txt_receita.setText("0")
+        self.txt_custo_salarios.setText("0")
+        self.txt_custo_aluguel.setText("0")
+        self.txt_custo_outros.setText("0")
+        self.txt_despesa_agua_luz_tel.setText("0")
+        self.txt_despesa_material.setText("0")
+        self.txt_despesa_outros.setText("0")
+        self.txt_impostos.setText("0")
+        self.calcular_totais()
+
+    def atualizar_tabela_dados(self, empresa_id):
+        dados = self.db.fetchall(
+            "SELECT mes, ano, receita_bruta, custos, despesas, impostos, lucro_operacional, id FROM dados_mensais WHERE empresa_id = ? ORDER BY ano, mes",
+            (empresa_id,)
+        )
+        
+        self.tabela_dados.setRowCount(len(dados))
+        for i, d in enumerate(dados):
+            self.tabela_dados.setItem(i, 0, QTableWidgetItem(f"{d[0]:02d}/{d[1]}"))
+            self.tabela_dados.setItem(i, 1, QTableWidgetItem(f"R$ {d[2]:,.2f}"))
+            self.tabela_dados.setItem(i, 2, QTableWidgetItem(f"R$ {d[3]:,.2f}"))
+            self.tabela_dados.setItem(i, 3, QTableWidgetItem(f"R$ {d[4]:,.2f}"))
+            self.tabela_dados.setItem(i, 4, QTableWidgetItem(f"R$ {d[5]:,.2f}"))
+            self.tabela_dados.setItem(i, 5, QTableWidgetItem(f"R$ {d[6]:,.2f}"))
+            
+            btn_excluir = QPushButton("Excluir")
+            btn_excluir.clicked.connect(lambda checked, id=d[7]: self.excluir_dado(id))
+            self.tabela_dados.setCellWidget(i, 6, btn_excluir)
+
+    def excluir_dado(self, dado_id):
+        self.db.execute("DELETE FROM dados_mensais WHERE id = ?", (dado_id,))
+        empresa_id = self.combo_empresa_dados.currentData()
+        self.atualizar_tabela_dados(empresa_id)
+
+    def gerar_relatorio(self):
+        empresa_id = self.combo_empresa_rel.currentData()
+        if not empresa_id:
+            QMessageBox.warning(self, "Aviso", "Selecione uma empresa")
+            return
+        
+        empresa = self.db.fetchone("SELECT nome, responsavel FROM empresas WHERE id = ?", (empresa_id,))
+        dados = self.db.fetchall(
+            """SELECT mes, ano, receita_bruta, 
+                custo_salarios, custo_aluguel, custo_outros,
+                despesa_agua_luz_tel, despesa_material, despesa_outros,
+                custos, despesas, impostos, lucro_operacional 
+                FROM dados_mensais WHERE empresa_id = ? ORDER BY ano, mes""",
+            (empresa_id,)
+        )
+        
+        if not dados:
+            QMessageBox.warning(self, "Aviso", "Nenhum dado mensal cadastrado")
+            return
+        
+        dados_formatados = [
+            {
+                "mes": d[0], "ano": d[1], "receita_bruta": d[2],
+                # Custos detalhados
+                "custo_salarios": d[3], "custo_aluguel": d[4], "custo_outros": d[5],
+                # Despesas detalhadas
+                "despesa_agua_luz_tel": d[6], "despesa_material": d[7], "despesa_outros": d[8],
+                # Totais
+                "custos": d[9], "despesas": d[10], "impostos": d[11], "lucro_operacional": d[12]
+            }
+            for d in dados
+        ]
+        
+        use_ia = self.radio_ia.isChecked()
+        comando_ia = self.txt_comando_ia.toPlainText().strip()
+        tema_key = self.combo_tema.currentData()
+
+        bundle_dir = os.path.dirname(os.path.abspath(__file__))
+
+        # Se tema personalizado, criar dicionário de cores personalizadas
+        cores_personalizadas = None
+        if tema_key == "personalizado":
+            cores_personalizadas = {
+                'primaria': self.cor_header,
+                'secundaria': self.cor_footer,
+                'header': self.cor_header,
+                'footer': self.cor_footer,
+                'fundo': self.cor_fundo,
+                'texto': self.cor_texto,
+                'texto_secundario': self.cor_texto,
+                'destaque': self.cor_destaque
+            }
+
+        self.thread = GeradorPPTXThread(dados_formatados, empresa[0], empresa[1] or "", bundle_dir, use_ia, comando_ia, tema_key, cores_personalizadas)
+        self.thread.progress.connect(self.atualizar_progresso)
+        self.thread.finished.connect(self.relatorio_gerado)
+        
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+        self.thread.start()
+
+    def atualizar_progresso(self, valor):
+        self.progress_bar.setValue(valor)
+
+    def relatorio_gerado(self, sucesso, resultado):
+        self.progress_bar.setVisible(False)
+        if sucesso:
+            QMessageBox.information(self, "Sucesso", f"Relatorio gerado:\n{resultado}")
+        else:
+            QMessageBox.critical(self, "Erro", f"Falha ao gerar:\n{resultado}")
+
+    def on_tema_changed(self, index):
+        """Mostra/oculta o grupo de cores personalizadas quando selecionado"""
+        tema_key = self.combo_tema.currentData()
+        if tema_key == "personalizado":
+            self.grupo_cores_personalizadas.setVisible(True)
+        else:
+            self.grupo_cores_personalizadas.setVisible(False)
+
+    def selecionar_cor_fundo(self):
+        cor = QColorDialog.getColor()
+        if cor.isValid():
+            self.cor_fundo = RGBColor(cor.red(), cor.green(), cor.blue())
+            self.btn_cor_fundo.setStyleSheet(f"background-color: {cor.name()}; min-width: 100px;")
+
+    def selecionar_cor_header(self):
+        cor = QColorDialog.getColor()
+        if cor.isValid():
+            self.cor_header = RGBColor(cor.red(), cor.green(), cor.blue())
+            self.btn_cor_header.setStyleSheet(f"background-color: {cor.name()}; color: white; min-width: 100px;")
+
+    def selecionar_cor_footer(self):
+        cor = QColorDialog.getColor()
+        if cor.isValid():
+            self.cor_footer = RGBColor(cor.red(), cor.green(), cor.blue())
+            self.btn_cor_footer.setStyleSheet(f"background-color: {cor.name()}; color: white; min-width: 100px;")
+
+    def selecionar_cor_texto(self):
+        cor = QColorDialog.getColor()
+        if cor.isValid():
+            self.cor_texto = RGBColor(cor.red(), cor.green(), cor.blue())
+            self.btn_cor_texto.setStyleSheet(f"background-color: {cor.name()}; color: white; min-width: 100px;")
+
+    def selecionar_cor_destaque(self):
+        cor = QColorDialog.getColor()
+        if cor.isValid():
+            self.cor_destaque = RGBColor(cor.red(), cor.green(), cor.blue())
+            self.btn_cor_destaque.setStyleSheet(f"background-color: {cor.name()}; color: white; min-width: 100px;")
+
+
+def main():
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
