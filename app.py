@@ -196,8 +196,16 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Auditar Planejamento Tributário")
         self.setGeometry(100, 100, 900, 700)
-        
+
         self.db = DatabaseManager()
+
+        # Inicializar cores padrão (para evitar erro ao gerar relatório sem visitar aba de relatórios)
+        from pptx.dml.color import RGBColor
+        self.cor_fundo = RGBColor(255, 255, 255)  # Branco padrão
+        self.cor_header = RGBColor(0, 0, 128)  # Azul escuro padrão
+        self.cor_footer = RGBColor(0, 0, 128)  # Azul escuro padrão
+        self.cor_texto = RGBColor(0, 0, 0)  # Preto padrão
+        self.cor_destaque = RGBColor(212, 175, 55)  # Dourado padrão
         
         # Widget central com abas
         self.central_widget = QWidget()
@@ -392,13 +400,32 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(page)
         layout.setSpacing(15)
 
-        # Selecionar empresa
+        # Selecionar empresa e período
         selecao_layout = QHBoxLayout()
         selecao_layout.addWidget(QLabel("Empresa:"))
         self.combo_empresa_dash = QComboBox()
-        self.combo_empresa_dash.setMinimumWidth(300)
+        self.combo_empresa_dash.setMinimumWidth(250)
         self.combo_empresa_dash.currentIndexChanged.connect(self.atualizar_dashboard)
         selecao_layout.addWidget(self.combo_empresa_dash)
+
+        selecao_layout.addWidget(QLabel("  Período:"))
+        self.combo_periodo_dash = QComboBox()
+        self.combo_periodo_dash.setMinimumWidth(150)
+        self.combo_periodo_dash.addItem("Todos os meses", "todos")
+        self.combo_periodo_dash.addItem("Último trimestre", "trimestral")
+        self.combo_periodo_dash.addItem("Último ano", "anual")
+        self.combo_periodo_dash.addItem("Personalizado", "personalizado")
+        self.combo_periodo_dash.currentIndexChanged.connect(self.atualizar_dashboard)
+        selecao_layout.addWidget(self.combo_periodo_dash)
+
+        # Filtro de ano (para período personalizado)
+        selecao_layout.addWidget(QLabel("  Ano:"))
+        self.combo_ano_dash = QComboBox()
+        self.combo_ano_dash.setMinimumWidth(100)
+        self.combo_ano_dash.currentIndexChanged.connect(self.atualizar_dashboard)
+        self.combo_ano_dash.setEnabled(False)
+        selecao_layout.addWidget(self.combo_ano_dash)
+
         selecao_layout.addStretch()
         layout.addLayout(selecao_layout)
 
@@ -454,18 +481,50 @@ class MainWindow(QMainWindow):
             self.canvas.hide()
             return
 
+        # Habilitar/desabilitar filtro de ano baseado no período selecionado
+        periodo = self.combo_periodo_dash.currentData()
+        if periodo == "personalizado":
+            self.combo_ano_dash.setEnabled(True)
+            # Preencher anos disponíveis
+            anos = self.db.fetchall("SELECT DISTINCT ano FROM dados_mensais WHERE empresa_id = ? ORDER BY ano DESC", (empresa_id,))
+            self.combo_ano_dash.clear()
+            for ano in anos:
+                self.combo_ano_dash.addItem(str(ano[0]), ano[0])
+        else:
+            self.combo_ano_dash.setEnabled(False)
+
         # Buscar dados mensais da empresa
-        dados = self.db.fetchall(
-            "SELECT mes, ano, receita_bruta, custos, despesas, impostos, lucro_operacional "
-            "FROM dados_mensais WHERE empresa_id = ? ORDER BY ano, mes",
-            (empresa_id,)
-        )
+        query = "SELECT mes, ano, receita_bruta, custos, despesas, impostos, lucro_operacional FROM dados_mensais WHERE empresa_id = ?"
+        params = (empresa_id,)
+
+        # Aplicar filtro de período
+        if periodo == "trimestral":
+            # Últimos 3 meses
+            query += " ORDER BY ano DESC, mes DESC LIMIT 3"
+        elif periodo == "anual":
+            # Último ano (12 meses)
+            query += " ORDER BY ano DESC, mes DESC LIMIT 12"
+        elif periodo == "personalizado":
+            # Filtro por ano específico
+            ano_selecionado = self.combo_ano_dash.currentData()
+            if ano_selecionado:
+                query += " AND ano = ?"
+                params = (empresa_id, ano_selecionado)
+            query += " ORDER BY mes"
+        else:  # todos
+            query += " ORDER BY ano, mes"
+
+        dados = self.db.fetchall(query, params)
 
         if not dados:
             self.lbl_sem_dados.setText("Nenhum dado mensal cadastrado para esta empresa.\nAdicione dados na aba 'Dados Mensais' primeiro.")
             self.lbl_sem_dados.show()
             self.canvas.hide()
             return
+
+        # Inverter dados se necessário (para ordenação correta no gráfico)
+        if periodo in ["trimestral", "anual"]:
+            dados = dados[::-1]
 
         self.lbl_sem_dados.hide()
         if hasattr(self, 'lbl_sem_matplotlib'):
@@ -486,18 +545,34 @@ class MainWindow(QMainWindow):
         ax1 = self.figure.add_subplot(2, 1, 1)
         ax2 = self.figure.add_subplot(2, 1, 2)
 
-        # Gráfico 1: Receita vs Custos vs Despesas
-        ax1.plot(meses, receita, marker='o', label='Receita', color='green', linewidth=2)
-        ax1.plot(meses, custos, marker='s', label='Custos', color='red', linewidth=2)
-        ax1.plot(meses, despesas, marker='^', label='Despesas', color='orange', linewidth=2)
+        # Gráfico 1: Receita vs Custos vs Despesas (interativo)
+        line1, = ax1.plot(meses, receita, marker='o', label='Receita', color='green', linewidth=2, markersize=8)
+        line2, = ax1.plot(meses, custos, marker='s', label='Custos', color='red', linewidth=2, markersize=8)
+        line3, = ax1.plot(meses, despesas, marker='^', label='Despesas', color='orange', linewidth=2, markersize=8)
+        
+        # Adicionar tooltips interativos
+        try:
+            from mplcursors import cursor
+            cursor([line1, line2, line3], hover=True)
+        except ImportError:
+            pass  # mplcursors não está instalado, gráfico sem tooltips
+        
         ax1.set_title('Receita, Custos e Despesas por Mês', fontsize=12, fontweight='bold')
         ax1.set_ylabel('Valor (R$)', fontsize=10)
         ax1.legend()
         ax1.grid(True, alpha=0.3)
         ax1.tick_params(axis='x', rotation=45)
 
-        # Gráfico 2: Lucro Operacional
-        ax2.bar(meses, lucro, color='blue' if all(l >= 0 for l in lucro) else 'red', alpha=0.7)
+        # Gráfico 2: Lucro Operacional (interativo)
+        bars = ax2.bar(meses, lucro, color=['green' if l >= 0 else 'red' for l in lucro], alpha=0.7)
+        
+        # Adicionar tooltips nas barras
+        try:
+            from mplcursors import cursor
+            cursor(bars, hover=True)
+        except ImportError:
+            pass
+        
         ax2.set_title('Lucro Operacional por Mês', fontsize=12, fontweight='bold')
         ax2.set_ylabel('Lucro (R$)', fontsize=10)
         ax2.axhline(y=0, color='black', linestyle='-', linewidth=0.5)

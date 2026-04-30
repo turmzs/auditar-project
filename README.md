@@ -58,6 +58,10 @@ Sistema desktop completo para gestão contábil de empresas, com cálculo autom�
 ### 6. Dashboard e Relatórios
 - Visualização de dados em tabela
 - Filtro por empresa
+- **Filtros por período**: Todos os meses, Último trimestre, Último ano, Personalizado (por ano)
+- **Gráficos interativos** com tooltips ao passar o mouse
+- Gráfico de Receita vs Custos vs Despesas
+- Gráfico de Lucro Operacional (com cores dinâmicas: verde para lucro, vermelho para prejuízo)
 - Detalhamento completo dos cálculos de impostos
 - Exportação para PowerPoint
 
@@ -183,6 +187,7 @@ Para compilar o aplicativo em executável:
 - python-pptx
 - matplotlib
 - httpx
+- mplcursors (opcional, para tooltips interativos nos gráficos)
 - Ollama (opcional, para funcionalidades de IA)
 
 ## 🐛 Troubleshooting

@@ -9,6 +9,117 @@ from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.enum.shapes import MSO_SHAPE
 import os
+import tempfile
+from io import BytesIO
+
+
+# ============================================================
+# FUNÇÃO PARA GERAR GRÁFICOS COMO IMAGENS
+# ============================================================
+
+def gerar_grafico_slide(dados_mensais, cores=None):
+    """
+    Gera um gráfico de tendências financeiras como imagem para inserir no slide
+
+    Args:
+        dados_mensais: Lista de dicionários com dados mensais
+        cores: Dicionário de cores (opcional)
+
+    Returns:
+        BytesIO: Imagem do gráfico em memória
+    """
+    try:
+        import matplotlib
+        matplotlib.use('Agg')  # Backend não-interativo
+        import matplotlib.pyplot as plt
+        from matplotlib.figure import Figure
+    except ImportError:
+        # Matplotlib não disponível, retornar None
+        return None
+
+    if not dados_mensais:
+        return None
+
+    # Preparar dados
+    meses = [f"{d.get('mes', 0)}/{d.get('ano', 0)}" for d in dados_mensais]
+    receita = [d.get('receita_bruta', 0) for d in dados_mensais]
+    custos = [d.get('custos', 0) for d in dados_mensais]
+    despesas = [d.get('despesas', 0) for d in dados_mensais]
+    lucro = [d.get('lucro_operacional', 0) for d in dados_mensais]
+
+    # Criar figura
+    fig = Figure(figsize=(10, 6))
+    ax1 = fig.add_subplot(2, 1, 1)
+    ax2 = fig.add_subplot(2, 1, 2)
+
+    # Definir cores baseadas no template
+    if cores:
+        cor_receita = cores.get('texto', RGBColor(0, 128, 0))
+        cor_custos = cores.get('texto_secundario', RGBColor(255, 0, 0))
+        cor_despesas = RGBColor(255, 165, 0)
+        cor_lucro = cores.get('destaque', RGBColor(0, 0, 255))
+    else:
+        cor_receita = 'green'
+        cor_custos = 'red'
+        cor_despesas = 'orange'
+        cor_lucro = 'blue'
+
+    # Gráfico 1: Receita vs Custos vs Despesas
+    ax1.plot(meses, receita, marker='o', label='Receita', color=cor_receita if isinstance(cor_receita, str) else 'green', linewidth=2)
+    ax1.plot(meses, custos, marker='s', label='Custos', color=cor_custos if isinstance(cor_custos, str) else 'red', linewidth=2)
+    ax1.plot(meses, despesas, marker='^', label='Despesas', color=cor_despesas if isinstance(cor_despesas, str) else 'orange', linewidth=2)
+    ax1.set_title('Receita, Custos e Despesas por Mês', fontsize=12, fontweight='bold')
+    ax1.set_ylabel('Valor (R$)', fontsize=10)
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    ax1.tick_params(axis='x', rotation=45)
+
+    # Gráfico 2: Lucro Operacional
+    ax2.bar(meses, lucro, color=cor_lucro if isinstance(cor_lucro, str) else 'blue', alpha=0.7)
+    ax2.set_title('Lucro Operacional por Mês', fontsize=12, fontweight='bold')
+    ax2.set_ylabel('Lucro (R$)', fontsize=10)
+    ax2.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
+    ax2.grid(True, alpha=0.3)
+    ax2.tick_params(axis='x', rotation=45)
+
+    fig.tight_layout()
+
+    # Salvar em memória
+    img_buffer = BytesIO()
+    fig.savefig(img_buffer, format='png', dpi=150, bbox_inches='tight')
+    img_buffer.seek(0)
+    plt.close(fig)
+
+    return img_buffer
+
+
+def adicionar_grafico_ao_slide(slide, img_buffer, x=0.5, y=1.5, width=9, height=4):
+    """
+    Adiciona um gráfico (imagem) ao slide
+
+    Args:
+        slide: Objeto slide do python-pptx
+        img_buffer: BytesIO com a imagem do gráfico
+        x: Posição X em polegadas
+        y: Posição Y em polegadas
+        width: Largura em polegadas
+        height: Altura em polegadas
+    """
+    if img_buffer is None:
+        return
+
+    # Salvar imagem temporariamente
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
+        tmp.write(img_buffer.getvalue())
+        tmp_path = tmp.name
+
+    try:
+        # Adicionar imagem ao slide
+        slide.shapes.add_picture(tmp_path, Inches(x), Inches(y), Inches(width), Inches(height))
+    finally:
+        # Remover arquivo temporário
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
 # ============================================================
@@ -271,16 +382,18 @@ def adicionar_logo(slide, x=None, y=0.2, largura=0.8):
 
 def adicionar_header_footer(slide, cores, slide_num=None, total_slides=None):
     """Adiciona header e footer padrão Auditar em todos os slides"""
-    # Header - barra dourada superior
+    # Header - usar cor 'primaria' ou 'header' ou 'accent' como fallback
+    cor_header = cores.get('header', cores.get('primaria', cores.get('accent', RGBColor(212, 175, 55))))
     header = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, Inches(10), Inches(0.15))
     header.fill.solid()
-    header.fill.fore_color.rgb = cores.get('accent', RGBColor(212, 175, 55))
+    header.fill.fore_color.rgb = cor_header
     header.line.fill.background()
-    
-    # Footer - barra dourada inferior
+
+    # Footer - usar cor 'secundaria' ou 'footer' ou 'accent' como fallback
+    cor_footer = cores.get('footer', cores.get('secundaria', cores.get('accent', RGBColor(212, 175, 55))))
     footer = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, Inches(5.47), Inches(10), Inches(0.15))
     footer.fill.solid()
-    footer.fill.fore_color.rgb = cores.get('accent', RGBColor(212, 175, 55))
+    footer.fill.fore_color.rgb = cor_footer
     footer.line.fill.background()
     
     # Número do slide (opcional)
@@ -616,9 +729,42 @@ def template_corporativo_escuro(prs, dados_mensais, nome_empresa, responsavel, c
     
     # Logo + header/footer slide 5
     adicionar_logo(slide)
-    adicionar_header_footer(slide, cores, 5, 8)
-    
-    # Slide 6: Recomendações (baseadas no cenário financeiro)
+    adicionar_header_footer(slide, cores, 5, 9 if len(dados_mensais) > 6 else 8)
+
+    # Slide 6: Gráfico de Tendências
+    slide = prs.slides.add_slide(slide_layout)
+    background = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, prs.slide_width, prs.slide_height)
+    background.fill.solid()
+    background.fill.fore_color.rgb = cores['fundo']
+    background.line.fill.background()
+
+    title_box = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(9), Inches(0.8))
+    tf = title_box.text_frame
+    p = tf.paragraphs[0]
+    p.text = "GRÁFICO DE TENDÊNCIAS"
+    p.font.size = Pt(32)
+    p.font.bold = True
+    p.font.color.rgb = cores['destaque']
+
+    # Gerar e adicionar gráfico
+    grafico_img = gerar_grafico_slide(dados_mensais, cores)
+    if grafico_img:
+        adicionar_grafico_ao_slide(slide, grafico_img, x=0.5, y=1.2, width=8, height=3.5)
+    else:
+        # Matplotlib não disponível, mostrar mensagem
+        msg_box = slide.shapes.add_textbox(Inches(0.5), Inches(2.0), Inches(9), Inches(1))
+        tf = msg_box.text_frame
+        p = tf.paragraphs[0]
+        p.text = "Gráfico não disponível (matplotlib não instalado)"
+        p.font.size = Pt(14)
+        p.font.color.rgb = cores['texto']
+        p.alignment = PP_ALIGN.CENTER
+
+    # Logo + header/footer slide 6
+    adicionar_logo(slide)
+    adicionar_header_footer(slide, cores, 6, 9 if len(dados_mensais) > 6 else 8)
+
+    # Slide 7: Recomendações (baseadas no cenário financeiro)
     slide = prs.slides.add_slide(slide_layout)
     background = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, prs.slide_width, prs.slide_height)
     background.fill.solid()
@@ -646,11 +792,11 @@ def template_corporativo_escuro(prs, dados_mensais, nome_empresa, responsavel, c
         p.font.color.rgb = cores['texto']
         y += Inches(0.7)
 
-    # Logo + header/footer slide 6
+    # Logo + header/footer slide 7
     adicionar_logo(slide)
-    adicionar_header_footer(slide, cores, 6, 8 if len(dados_mensais) > 6 else 7)
-    
-    # Slide 7: Conclusão (baseada no cenário financeiro)
+    adicionar_header_footer(slide, cores, 7, 9 if len(dados_mensais) > 6 else 8)
+
+    # Slide 8: Conclusão (baseada no cenário financeiro)
     slide = prs.slides.add_slide(slide_layout)
     background = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, prs.slide_width, prs.slide_height)
     background.fill.solid()
@@ -709,9 +855,9 @@ def template_corporativo_escuro(prs, dados_mensais, nome_empresa, responsavel, c
 
 
 
-    # Logo + header/footer slide 7
+    # Logo + header/footer slide 8
     adicionar_logo(slide)
-    adicionar_header_footer(slide, cores, 8, 8)
+    adicionar_header_footer(slide, cores, 8, 9 if len(dados_mensais) > 6 else 8)
     
     return prs
 
@@ -831,14 +977,14 @@ def template_minimalista_branco(prs, dados_mensais, nome_empresa, responsavel, c
             p.font.size = Pt(14)
             p.font.color.rgb = RGBColor(33, 37, 41)  # Cinza escuro para contraste
     
-    # Slides 3-6: Resumo, Análise, Recomendações, Conclusão (simplificados)
+    # Slides 3-7: Resumo, Análise, Gráfico, Recomendações, Conclusão (simplificados)
     total_receita = sum(d.get('receita_bruta', 0) for d in dados_mensais) if dados_mensais else 0
     total_lucro = sum(d.get('lucro_operacional', 0) for d in dados_mensais) if dados_mensais else 0
 
     # Analisar cenário financeiro para recomendações e conclusão
     cenario, recs_dinamicas, conclusao_dinamica = analisar_cenario_financeiro(dados_mensais)
 
-    for slide_num, titulo in enumerate(["RESUMO", "ANÁLISE", "RECOMENDAÇÕES", "CONCLUSÃO"], 3):
+    for slide_num, titulo in enumerate(["RESUMO", "ANÁLISE", "GRÁFICO", "RECOMENDAÇÕES", "CONCLUSÃO"], 3):
         slide = prs.slides.add_slide(slide_layout)
 
         # Fundo
@@ -887,7 +1033,22 @@ def template_minimalista_branco(prs, dados_mensais, nome_empresa, responsavel, c
                 p.font.bold = True
                 p.font.color.rgb = cores['secundaria'] if i == 0 else cores['destaque'] if i == 1 else cores['texto']
 
-        elif slide_num == 5:  # Recomendações
+        elif slide_num == 4:  # Gráfico
+            # Gerar e adicionar gráfico
+            grafico_img = gerar_grafico_slide(dados_mensais, cores)
+            if grafico_img:
+                adicionar_grafico_ao_slide(slide, grafico_img, x=0.5, y=1.2, width=8, height=3.5)
+            else:
+                # Matplotlib não disponível, mostrar mensagem
+                msg_box = slide.shapes.add_textbox(Inches(0.5), Inches(2.0), Inches(9), Inches(1))
+                tf = msg_box.text_frame
+                p = tf.paragraphs[0]
+                p.text = "Gráfico não disponível (matplotlib não instalado)"
+                p.font.size = Pt(14)
+                p.font.color.rgb = cores['texto']
+                p.alignment = PP_ALIGN.CENTER
+
+        elif slide_num == 6:  # Recomendações
             # Recomendações dinâmicas baseadas no cenário
             y = Inches(1.5)
             for rec in recs_dinamicas:
@@ -899,7 +1060,7 @@ def template_minimalista_branco(prs, dados_mensais, nome_empresa, responsavel, c
                 p.font.color.rgb = cores['texto']
                 y += Inches(0.7)
 
-        elif slide_num == 6:  # Conclusão
+        elif slide_num == 7:  # Conclusão
             # Conclusão dinâmica
             concl_box = slide.shapes.add_textbox(Inches(0.5), Inches(1.5), Inches(9), Inches(1.5))
             tf = concl_box.text_frame
@@ -924,7 +1085,7 @@ def template_minimalista_branco(prs, dados_mensais, nome_empresa, responsavel, c
             tf = sub_box.text_frame
             p = tf.paragraphs[0]
             p.text = f"Responsável: {responsavel}"
-            p.font.size = Pt(16)
+            p.font.size = Pt(14)
             p.font.color.rgb = cores['texto_secundario']
             p.alignment = PP_ALIGN.CENTER
     
@@ -1055,7 +1216,7 @@ def template_moderno_gradiente(prs, dados_mensais, nome_empresa, responsavel, co
     # Analisar cenário financeiro para recomendações e conclusão
     cenario, recs_dinamicas, conclusao_dinamica = analisar_cenario_financeiro(dados_mensais)
 
-    for slide_num, titulo in enumerate(["ANÁLISE", "DADOS MENSAIS", "RECOMENDAÇÕES", "CONCLUSÃO"], 3):
+    for slide_num, titulo in enumerate(["ANÁLISE", "DADOS MENSAIS", "GRÁFICO", "RECOMENDAÇÕES", "CONCLUSÃO"], 3):
         slide = prs.slides.add_slide(slide_layout)
 
         # Fundo
@@ -1079,7 +1240,22 @@ def template_moderno_gradiente(prs, dados_mensais, nome_empresa, responsavel, co
         p.font.bold = True
         p.font.color.rgb = RGBColor(255, 255, 255)
 
-        if slide_num == 5:  # Recomendações
+        if slide_num == 4:  # Gráfico
+            # Gerar e adicionar gráfico
+            grafico_img = gerar_grafico_slide(dados_mensais, cores)
+            if grafico_img:
+                adicionar_grafico_ao_slide(slide, grafico_img, x=0.5, y=1.2, width=8, height=3.5)
+            else:
+                # Matplotlib não disponível, mostrar mensagem
+                msg_box = slide.shapes.add_textbox(Inches(0.5), Inches(2.0), Inches(9), Inches(1))
+                tf = msg_box.text_frame
+                p = tf.paragraphs[0]
+                p.text = "Gráfico não disponível (matplotlib não instalado)"
+                p.font.size = Pt(14)
+                p.font.color.rgb = cores['texto']
+                p.alignment = PP_ALIGN.CENTER
+
+        elif slide_num == 6:  # Recomendações
             # Recomendações dinâmicas baseadas no cenário
             y = Inches(1.5)
             for rec in recs_dinamicas:
@@ -1091,7 +1267,7 @@ def template_moderno_gradiente(prs, dados_mensais, nome_empresa, responsavel, co
                 p.font.color.rgb = cores['texto']
                 y += Inches(0.7)
 
-        elif slide_num == 6:  # Conclusão
+        elif slide_num == 7:  # Conclusão
             # Conclusão dinâmica
             concl_box = slide.shapes.add_textbox(Inches(0.5), Inches(1.5), Inches(9), Inches(1.5))
             tf = concl_box.text_frame
@@ -1116,7 +1292,7 @@ def template_moderno_gradiente(prs, dados_mensais, nome_empresa, responsavel, co
             tf = sub_box.text_frame
             p = tf.paragraphs[0]
             p.text = f"Responsável: {responsavel}"
-            p.font.size = Pt(16)
+            p.font.size = Pt(14)
             p.font.color.rgb = cores['texto_secundario']
             p.alignment = PP_ALIGN.CENTER
     

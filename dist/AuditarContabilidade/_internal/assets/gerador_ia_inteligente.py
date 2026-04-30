@@ -1443,7 +1443,8 @@ async def gerar_apresentacao_ia(
     responsavel: str,
     comando_estilo: str = "",
     model: str = DEFAULT_MODEL,
-    bundle_dir: str = None
+    bundle_dir: str = None,
+    cores_personalizadas: dict = None
 ) -> str:
     """
     Função principal para integração com o sistema contábil
@@ -1455,6 +1456,7 @@ async def gerar_apresentacao_ia(
         responsavel: Nome do responsável
         comando_estilo: Comando em linguagem natural (ex: "fundo azul marinho com dourado")
         model: Modelo Ollama a usar
+        cores_personalizadas: Dicionário de cores personalizadas (opcional)
 
     Returns:
         Caminho do arquivo PPTX gerado
@@ -1468,35 +1470,48 @@ async def gerar_apresentacao_ia(
     if not comando_estilo:
         comando_estilo = "corporativo escuro azul e dourado"
 
-    # Analisar comando para escolher template e cores
-    try:
-        design = await gerador._analisar_requisitos(comando_estilo)
-    except Exception as e:
-        print(f"⚠️  Erro ao analisar requisitos: {e}")
-        # Usar design fallback em caso de erro
-        design = gerador._design_fallback(comando_estilo)
+    # Se cores personalizadas foram fornecidas, usar elas
+    if cores_personalizadas:
+        print("🎨 Usando cores personalizadas fornecidas pelo usuário")
+        # Ainda usar IA para escolher o template, mas não para cores
+        try:
+            design = await gerador._analisar_requisitos(comando_estilo)
+        except Exception as e:
+            print(f"⚠️  Erro ao analisar requisitos: {e}")
+            design = gerador._design_fallback(comando_estilo)
+    else:
+        # Analisar comando para escolher template e cores
+        try:
+            design = await gerador._analisar_requisitos(comando_estilo)
+        except Exception as e:
+            print(f"⚠️  Erro ao analisar requisitos: {e}")
+            # Usar design fallback em caso de erro
+            design = gerador._design_fallback(comando_estilo)
 
     # Mapear design para template
     template_nome = "corporativo_escuro"  # Padrão
-    cores_personalizadas = None
 
-    # Extrair cores do design retornado (fallback ou IA)
-    cores_design = design.get("cores", {})
-    acento_rgb = cores_design.get("acento", [212, 175, 55])  # Dourado padrão
+    # Se cores personalizadas não foram fornecidas, gerar com IA
+    if not cores_personalizadas:
+        # Extrair cores do design retornado (fallback ou IA)
+        cores_design = design.get("cores", {})
+        acento_rgb = cores_design.get("acento", [212, 175, 55])  # Dourado padrão
 
-    # Criar cores personalizadas baseadas no design
-    from pptx.dml.color import RGBColor
-    cores_personalizadas = {
-        'primaria': RGBColor(*cores_design.get("primaria", [30, 58, 138])),
-        'secundaria': RGBColor(*cores_design.get("secundaria", acento_rgb)),
-        'fundo': RGBColor(*cores_design.get("fundo", [255, 255, 255])),
-        'texto': RGBColor(*cores_design.get("titulo", [33, 37, 41])),
-        'texto_secundario': RGBColor(*cores_design.get("texto", [108, 117, 125])),
-        'destaque': RGBColor(*cores_design.get("destaque", acento_rgb)),
-        'accent': RGBColor(*acento_rgb)  # Para header/footer
-    }
+        # Criar cores personalizadas baseadas no design
+        from pptx.dml.color import RGBColor
+        cores_personalizadas = {
+            'primaria': RGBColor(*cores_design.get("primaria", [30, 58, 138])),
+            'secundaria': RGBColor(*cores_design.get("secundaria", acento_rgb)),
+            'fundo': RGBColor(*cores_design.get("fundo", [255, 255, 255])),
+            'texto': RGBColor(*cores_design.get("titulo", [33, 37, 41])),
+            'texto_secundario': RGBColor(*cores_design.get("texto", [108, 117, 125])),
+            'destaque': RGBColor(*cores_design.get("destaque", acento_rgb)),
+            'accent': RGBColor(*acento_rgb)  # Para header/footer
+        }
 
-    print(f"🎨 Cores aplicadas: acento RGB({', '.join(map(str, acento_rgb))})")
+        print(f"🎨 Cores aplicadas: acento RGB({', '.join(map(str, acento_rgb))})")
+    else:
+        print("🎨 Cores personalizadas aplicadas")
 
     # Escolher template baseado nas preferências
     estilo = design.get("estilo", "").lower()
