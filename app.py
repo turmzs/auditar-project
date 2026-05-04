@@ -23,6 +23,7 @@ from pptx.dml.color import RGBColor
 # Importar calculadora de impostos
 sys.path.append(os.path.join(os.path.dirname(__file__), 'assets'))
 from calculadora_impostos import CalculadoraImpostos
+from calculo_profissional import CalculoProfissional, salvar_resultado_calculo
 
 # Adicionar paths
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -105,6 +106,78 @@ class DatabaseManager:
                 despesas REAL DEFAULT 0,
                 impostos REAL DEFAULT 0,
                 lucro_operacional REAL DEFAULT 0,
+                FOREIGN KEY (empresa_id) REFERENCES empresas(id)
+            )
+        ''')
+
+        # Tabela de lançamentos fiscais (entradas/saídas)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS lancamentos_fiscais (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                empresa_id INTEGER,
+                mes INTEGER,
+                ano INTEGER,
+                tipo TEXT,  -- 'entrada' (compra) ou 'saida' (venda)
+                descricao TEXT,
+                valor REAL DEFAULT 0,
+                valor_icms REAL DEFAULT 0,  -- ICMS incluso no valor
+                valor_pis REAL DEFAULT 0,   -- PIS incluso
+                valor_cofins REAL DEFAULT 0, -- COFINS incluso
+                is_credito INTEGER DEFAULT 0,  -- 1 = gera crédito, 0 = não
+                data_lancamento TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (empresa_id) REFERENCES empresas(id)
+            )
+        ''')
+
+        # Tabela de créditos de impostos acumulados
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS creditos_impostos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                empresa_id INTEGER,
+                ano INTEGER,
+                mes INTEGER,
+                tipo_imposto TEXT,  -- 'PIS', 'COFINS', 'ICMS', 'IRPJ', 'CSLL'
+                valor_credito REAL DEFAULT 0,
+                valor_utilizado REAL DEFAULT 0,
+                saldo REAL DEFAULT 0,
+                origem TEXT,  -- 'prejuizo', 'compra', 'ajuste', etc.
+                descricao TEXT,
+                data_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (empresa_id) REFERENCES empresas(id)
+            )
+        ''')
+
+        # Tabela de prejuízos fiscais para compensação
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS prejuizos_fiscais (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                empresa_id INTEGER,
+                ano_origem INTEGER,
+                valor_prejuizo REAL DEFAULT 0,
+                valor_compensado REAL DEFAULT 0,
+                saldo_restante REAL DEFAULT 0,
+                limite_30_percent INTEGER DEFAULT 1,  -- se aplica limite de 30%
+                data_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (empresa_id) REFERENCES empresas(id)
+            )
+        ''')
+
+        # Tabela de memória de cálculo (histórico detalhado)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS memoria_calculo (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                empresa_id INTEGER,
+                mes INTEGER,
+                ano INTEGER,
+                regime TEXT,
+                tipo_imposto TEXT,
+                base_calculo REAL DEFAULT 0,
+                aliquota REAL DEFAULT 0,
+                valor_debito REAL DEFAULT 0,
+                valor_credito REAL DEFAULT 0,
+                valor_total REAL DEFAULT 0,
+                detalhamento TEXT,  -- JSON com detalhes
+                data_calculo TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (empresa_id) REFERENCES empresas(id)
             )
         ''')
@@ -228,6 +301,7 @@ class MainWindow(QMainWindow):
         # Criar paginas
         self.criar_aba_empresas()
         self.criar_aba_dados()
+        self.criar_aba_fiscal()  # Nova aba para créditos e cálculos profissionais
         self.criar_aba_dashboard()
         self.criar_aba_relatorios()
         
@@ -484,6 +558,157 @@ class MainWindow(QMainWindow):
 
         # Conectar mudança de empresa para verificar regime
         self.combo_empresa_dados.currentIndexChanged.connect(self.verificar_regime_para_trimestral)
+
+    def criar_aba_fiscal(self):
+        """Nova aba fiscal para cálculos profissionais com créditos e memória"""
+        page = QWidget()
+        self.tabs.addTab(page, "📊 Fiscal")
+        layout = QVBoxLayout(page)
+        layout.setSpacing(10)
+
+        # Scroll area para conteúdo
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll_layout_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_layout_widget)
+        scroll_layout.setSpacing(10)
+        scroll.setWidget(scroll_layout_widget)
+        layout.addWidget(scroll)
+
+        # Seleção de empresa
+        selecao_layout = QHBoxLayout()
+        selecao_layout.addWidget(QLabel("Empresa:"))
+        self.combo_empresa_fiscal = QComboBox()
+        self.combo_empresa_fiscal.setMinimumWidth(300)
+        selecao_layout.addWidget(self.combo_empresa_fiscal)
+        selecao_layout.addStretch()
+        scroll_layout.addLayout(selecao_layout)
+
+        # Período
+        periodo_layout = QHBoxLayout()
+        periodo_layout.addWidget(QLabel("Mês:"))
+        self.spin_mes_fiscal = QSpinBox()
+        self.spin_mes_fiscal.setRange(1, 12)
+        self.spin_mes_fiscal.setValue(datetime.now().month)
+        periodo_layout.addWidget(self.spin_mes_fiscal)
+
+        periodo_layout.addWidget(QLabel("  Ano:"))
+        self.spin_ano_fiscal = QSpinBox()
+        self.spin_ano_fiscal.setRange(2020, 2030)
+        self.spin_ano_fiscal.setValue(datetime.now().year)
+        periodo_layout.addWidget(self.spin_ano_fiscal)
+        periodo_layout.addStretch()
+        scroll_layout.addLayout(periodo_layout)
+
+        # Grupo: Dados Principais
+        grupo_dados = QGroupBox("Dados do Período")
+        scroll_layout.addWidget(grupo_dados)
+        dados_layout = QGridLayout(grupo_dados)
+
+        # Campos principais
+        self.txt_fiscal_receita = QLineEdit("0")
+        self.txt_fiscal_custos = QLineEdit("0")
+        self.txt_fiscal_despesas = QLineEdit("0")
+        self.txt_fiscal_prejuizo = QLineEdit("0")
+
+        dados_layout.addWidget(QLabel("Receita Bruta:"), 0, 0)
+        dados_layout.addWidget(self.txt_fiscal_receita, 0, 1)
+        dados_layout.addWidget(QLabel("Custos:"), 1, 0)
+        dados_layout.addWidget(self.txt_fiscal_custos, 1, 1)
+        dados_layout.addWidget(QLabel("Despesas:"), 2, 0)
+        dados_layout.addWidget(self.txt_fiscal_despesas, 2, 1)
+        dados_layout.addWidget(QLabel("Prejuízo a Compensar:"), 3, 0)
+        dados_layout.addWidget(self.txt_fiscal_prejuizo, 3, 1)
+
+        # Grupo: Créditos de Entrada (Compras)
+        grupo_creditos = QGroupBox("Créditos de Entrada (Compras)")
+        scroll_layout.addWidget(grupo_creditos)
+        creditos_layout = QGridLayout(grupo_creditos)
+
+        self.txt_credito_icms = QLineEdit("0")
+        self.txt_credito_pis = QLineEdit("0")
+        self.txt_credito_cofins = QLineEdit("0")
+
+        creditos_layout.addWidget(QLabel("ICMS Entrada:"), 0, 0)
+        creditos_layout.addWidget(self.txt_credito_icms, 0, 1)
+        creditos_layout.addWidget(QLabel("PIS Crédito:"), 1, 0)
+        creditos_layout.addWidget(self.txt_credito_pis, 1, 1)
+        creditos_layout.addWidget(QLabel("COFINS Crédito:"), 2, 0)
+        creditos_layout.addWidget(self.txt_credito_cofins, 2, 1)
+
+        # Grupo: Tipo de Atividade
+        grupo_atividade = QGroupBox("Tipo de Atividade")
+        scroll_layout.addWidget(grupo_atividade)
+        atividade_layout = QHBoxLayout(grupo_atividade)
+
+        self.combo_atividade_fiscal = QComboBox()
+        self.combo_atividade_fiscal.addItem("Serviços", "servicos")
+        self.combo_atividade_fiscal.addItem("Comércio", "comercio")
+        self.combo_atividade_fiscal.addItem("Indústria", "industria")
+        self.combo_atividade_fiscal.addItem("Transporte", "transporte")
+        atividade_layout.addWidget(QLabel("Atividade:"))
+        atividade_layout.addWidget(self.combo_atividade_fiscal)
+        atividade_layout.addStretch()
+
+        # Botões de cálculo
+        botoes_layout = QHBoxLayout()
+
+        btn_calcular_lucro_real = QPushButton("🔢 Calcular Lucro Real ")
+        btn_calcular_lucro_real.setStyleSheet("background-color: #28a745; color: white; font-weight: bold; padding: 10px;")
+        btn_calcular_lucro_real.clicked.connect(self.calcular_fiscal_lucro_real)
+        botoes_layout.addWidget(btn_calcular_lucro_real)
+
+        btn_calcular_lucro_presumido = QPushButton("📊 Calcular Lucro Presumido")
+        btn_calcular_lucro_presumido.setStyleSheet("background-color: #007bff; color: white; font-weight: bold; padding: 10px;")
+        btn_calcular_lucro_presumido.clicked.connect(self.calcular_fiscal_lucro_presumido)
+        botoes_layout.addWidget(btn_calcular_lucro_presumido)
+
+        btn_simular = QPushButton("🔄 Simular Regimes")
+        btn_simular.setStyleSheet("background-color: #6c757d; color: white; font-weight: bold; padding: 10px;")
+        btn_simular.clicked.connect(self.simular_regimes)
+        botoes_layout.addWidget(btn_simular)
+
+        scroll_layout.addLayout(botoes_layout)
+
+        # Área de resultados
+        self.grupo_resultado_fiscal = QGroupBox("Resultados")
+        self.grupo_resultado_fiscal.setVisible(False)
+        scroll_layout.addWidget(self.grupo_resultado_fiscal)
+
+        resultado_layout = QVBoxLayout(self.grupo_resultado_fiscal)
+
+        # Tabs para diferentes visualizações
+        tabs_resultado = QTabWidget()
+        resultado_layout.addWidget(tabs_resultado)
+
+        # Aba: Resumo
+        tab_resumo = QWidget()
+        tabs_resultado.addTab(tab_resumo, "📋 Resumo")
+        resumo_layout = QVBoxLayout(tab_resumo)
+        self.lbl_resumo_fiscal = QLabel()
+        self.lbl_resumo_fiscal.setStyleSheet("font-family: Consolas, monospace; font-size: 11px;")
+        resumo_layout.addWidget(self.lbl_resumo_fiscal)
+
+        # Aba: DRE
+        tab_dre = QWidget()
+        tabs_resultado.addTab(tab_dre, "📊 DRE")
+        dre_layout = QVBoxLayout(tab_dre)
+        self.lbl_dre_fiscal = QLabel()
+        self.lbl_dre_fiscal.setStyleSheet("font-family: Consolas, monospace; font-size: 11px;")
+        dre_layout.addWidget(self.lbl_dre_fiscal)
+
+        # Aba: Memória de Cálculo
+        tab_memoria = QWidget()
+        tabs_resultado.addTab(tab_memoria, "📝 Memória de Cálculo")
+        memoria_layout = QVBoxLayout(tab_memoria)
+        self.lbl_memoria_fiscal = QLabel()
+        self.lbl_memoria_fiscal.setStyleSheet("font-family: Consolas, monospace; font-size: 10px;")
+        memoria_layout.addWidget(self.lbl_memoria_fiscal)
+
+        # Botão exportar
+        btn_exportar = QPushButton("💾 Exportar Resultado (TXT)")
+        btn_exportar.clicked.connect(self.exportar_resultado_fiscal)
+        scroll_layout.addWidget(btn_exportar)
 
     def criar_aba_dashboard(self):
         page = QWidget()
@@ -912,11 +1137,13 @@ ICMS (estadual):                 R$ {resultado['icms_total']:,.2f}
         self.combo_empresa_dados.clear()
         self.combo_empresa_rel.clear()
         self.combo_empresa_dash.clear()
+        self.combo_empresa_fiscal.clear()
         for emp in empresas:
             texto = f"{emp[1]} (CNPJ: {emp[2] or 'N/A'})"
             self.combo_empresa_dados.addItem(texto, emp[0])
             self.combo_empresa_rel.addItem(texto, emp[0])
             self.combo_empresa_dash.addItem(texto, emp[0])
+            self.combo_empresa_fiscal.addItem(texto, emp[0])
 
         # Verificar regime para mostrar/ocultar cálculo trimestral
         if empresas:
@@ -1258,6 +1485,231 @@ Detalhamento:
         if cor.isValid():
             self.cor_destaque = RGBColor(cor.red(), cor.green(), cor.blue())
             self.btn_cor_destaque.setStyleSheet(f"background-color: {cor.name()}; color: white; min-width: 100px;")
+
+    # ============================================================
+    # FUNÇÕES FISCAIS PROFISSIONAIS
+    # ============================================================
+
+    def calcular_fiscal_lucro_real(self):
+        """Calcula Lucro Real com cálculo profissional (créditos, DRE, memória)"""
+        try:
+            # Obter valores
+            receita = float(self.txt_fiscal_receita.text().replace(',', '.') or 0)
+            custos = float(self.txt_fiscal_custos.text().replace(',', '.') or 0)
+            despesas = float(self.txt_fiscal_despesas.text().replace(',', '.') or 0)
+            prejuizo = float(self.txt_fiscal_prejuizo.text().replace(',', '.') or 0)
+
+            credito_icms = float(self.txt_credito_icms.text().replace(',', '.') or 0)
+            credito_pis = float(self.txt_credito_pis.text().replace(',', '.') or 0)
+            credito_cofins = float(self.txt_credito_cofins.text().replace(',', '.') or 0)
+
+            mes = self.spin_mes_fiscal.value()
+            ano = self.spin_ano_fiscal.value()
+            tipo_atividade = self.combo_atividade_fiscal.currentData()
+
+            empresa_id = self.combo_empresa_fiscal.currentData()
+
+            # Calcular ICMS de saída (12% por dentro)
+            icms_saida = (receita / 1.12) * 0.12 if tipo_atividade != 'servicos' else 0
+
+            # Usar calculadora profissional
+            calc = CalculoProfissional(self.db)
+            resultado = calc.calcular_lucro_real_profissional(
+                empresa_id=empresa_id,
+                mes=mes,
+                ano=ano,
+                receita_bruta=receita,
+                custos=custos,
+                despesas=despesas,
+                creditos_pis=credito_pis,
+                creditos_cofins=credito_cofins,
+                icms_saida=icms_saida,
+                icms_entrada=credito_icms,
+                prejuizo_a_compensar=prejuizo,
+                tipo_atividade=tipo_atividade
+            )
+
+            # Salvar resultado no banco
+            if empresa_id:
+                salvar_resultado_calculo(self.db, empresa_id, resultado)
+
+            # Armazenar resultado atual para exportação
+            self.ultimo_resultado_fiscal = resultado
+
+            # Gerar textos
+            dre_texto = calc.gerar_dre(resultado)
+            memoria_texto = calc.gerar_memoria_calculo(resultado)
+
+            # Resumo formatado
+            resumo = f"""
+<strong>📊 RESUMO DO CÁLCULO - Lucro Real</strong><br><br>
+<strong>Período:</strong> {mes:02d}/{ano}<br>
+<strong>Receita Bruta:</strong> R$ {receita:,.2f}<br>
+<strong>Lucro Real:</strong> R$ {resultado.lucro_real:,.2f}<br><br>
+
+<strong>💰 Impostos sobre Lucro:</strong><br>
+• IRPJ: R$ {resultado.irpj:,.2f}<br>
+• CSLL: R$ {resultado.csll:,.2f}<br>
+• Subtotal: <strong>R$ {resultado.subtotal_lucro:,.2f}</strong><br><br>
+
+<strong>📈 Impostos sobre Faturamento:</strong><br>
+• PIS (1,65%): Débito R$ {resultado.pis_debito:,.2f} - Crédito R$ {resultado.pis_credito:,.2f} = <strong>R$ {resultado.pis_total:,.2f}</strong><br>
+• COFINS (7,6%): Débito R$ {resultado.cofins_debito:,.2f} - Crédito R$ {resultado.cofins_credito:,.2f} = <strong>R$ {resultado.cofins_total:,.2f}</strong><br>
+• ICMS: Débito R$ {resultado.icms_saida:,.2f} - Crédito R$ {resultado.icms_entrada:,.2f} = <strong>R$ {resultado.icms_total:,.2f}</strong><br>
+• ISS: <strong>R$ {resultado.iss:,.2f}</strong><br><br>
+
+<strong>🎯 TOTAL DE IMPOSTOS: R$ {resultado.total_impostos:,.2f}</strong><br>
+<strong>💵 Lucro Líquido: R$ {resultado.lucro_liquido:,.2f}</strong>
+"""
+
+            # Atualizar labels
+            self.lbl_resumo_fiscal.setText(resumo)
+            self.lbl_dre_fiscal.setText(dre_texto.replace('\n', '<br>'))
+            self.lbl_memoria_fiscal.setText(memoria_texto.replace('\n', '<br>'))
+
+            # Mostrar grupo de resultados
+            self.grupo_resultado_fiscal.setVisible(True)
+
+            QMessageBox.information(self, "Cálculo Concluído", 
+                f"Cálculo de Lucro Real concluído!\n\nTotal de Impostos: R$ {resultado.total_impostos:,.2f}")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Erro ao calcular: {str(e)}")
+
+    def calcular_fiscal_lucro_presumido(self):
+        """Calcula Lucro Presumido com cálculo profissional"""
+        try:
+            receita = float(self.txt_fiscal_receita.text().replace(',', '.') or 0)
+            tipo_atividade = self.combo_atividade_fiscal.currentData()
+            mes = self.spin_mes_fiscal.value()
+            ano = self.spin_ano_fiscal.value()
+
+            # Usar calculadora padrão
+            calc = CalculadoraImpostos()
+            resultado = calc.calcular_lucro_presumido(receita, tipo_atividade)
+
+            # Resumo
+            resumo = f"""
+<strong>📊 RESUMO DO CÁLCULO - Lucro Presumido</strong><br><br>
+<strong>Período:</strong> {mes:02d}/{ano}<br>
+<strong>Receita Bruta:</strong> R$ {receita:,.2f}<br>
+<strong>Tipo:</strong> {tipo_atividade}<br><br>
+
+<strong>💰 Impostos:</strong><br>
+• IRPJ (15% + adicional): R$ {resultado['irpj']:,.2f}<br>
+• CSLL (9%): R$ {resultado['csll']:,.2f}<br>
+• PIS (0,65%): R$ {resultado['pis']:,.2f}<br>
+• COFINS (3%): R$ {resultado['cofins']:,.2f}<br><br>
+
+<strong>🎯 TOTAL: R$ {resultado['total_impostos']:,.2f}</strong>
+"""
+
+            self.lbl_resumo_fiscal.setText(resumo)
+            self.lbl_dre_fiscal.setText("DRE disponível apenas para Lucro Real")
+            self.lbl_memoria_fiscal.setText(f"""
+<strong>📝 MEMÓRIA DE CÁLCULO - Lucro Presumido</strong><br><br>
+<strong>Base IRPJ:</strong> R$ {resultado['base_irpj']:,.2f} (presunção {resultado['presuncao_irpj']:.0f}%)<br>
+<strong>Base CSLL:</strong> R$ {resultado['base_csll']:,.2f} (presunção {resultado['presuncao_csll']:.0f}%)<br>
+<strong>IRPJ:</strong> 15% da base + 10% adicional se base > R$ 20.000<br>
+<strong>CSLL:</strong> 9% da base<br>
+<strong>PIS/COFINS:</strong> Sobre receita bruta (cumulativo)<br>
+""".replace('\n', '<br>'))
+
+            self.grupo_resultado_fiscal.setVisible(True)
+
+            QMessageBox.information(self, "Cálculo Concluído",
+                f"Cálculo de Lucro Presumido concluído!\n\nTotal: R$ {resultado['total_impostos']:,.2f}")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Erro ao calcular: {str(e)}")
+
+    def simular_regimes(self):
+        """Simula e compara os três regimes tributários"""
+        try:
+            receita = float(self.txt_fiscal_receita.text().replace(',', '.') or 0)
+            custos = float(self.txt_fiscal_custos.text().replace(',', '.') or 0)
+            despesas = float(self.txt_fiscal_despesas.text().replace(',', '.') or 0)
+            tipo_atividade = self.combo_atividade_fiscal.currentData()
+
+            calc = CalculadoraImpostos()
+
+            # Calcular todos os regimes
+            resultado_simples = calc.calcular_simples_nacional(receita, receita * 12, tipo_atividade)
+            resultado_presumido = calc.calcular_lucro_presumido(receita, tipo_atividade)
+            resultado_real = calc.calcular_lucro_real(receita, custos, despesas)
+
+            # Encontrar melhor regime
+            total_simples = resultado_simples['das']
+            total_presumido = resultado_presumido['total_impostos']
+            total_real = resultado_real['total_impostos']
+
+            melhor = min([("Simples Nacional", total_simples),
+                         ("Lucro Presumido", total_presumido),
+                         ("Lucro Real", total_real)], key=lambda x: x[1])
+
+            simulacao = f"""
+<strong>🔄 SIMULAÇÃO DE REGIMES TRIBUTÁRIOS</strong><br><br>
+
+<strong>📊 Receita Bruta:</strong> R$ {receita:,.2f}<br>
+<strong>💼 Custos:</strong> R$ {custos:,.2f} | <strong>Despesas:</strong> R$ {despesas:,.2f}<br><br>
+
+<strong>📈 RESULTADOS:</strong><br>
+┌─────────────────────┬──────────────────┐<br>
+│ Regime              │ Total Impostos   │<br>
+├─────────────────────┼──────────────────┤<br>
+│ Simples Nacional    │ R$ {total_simples:>13,.2f} │<br>
+│ Lucro Presumido     │ R$ {total_presumido:>13,.2f} │<br>
+│ Lucro Real          │ R$ {total_real:>13,.2f} │<br>
+└─────────────────────┴──────────────────┘<br><br>
+
+<strong>🏆 MELHOR OPÇÃO: {melhor[0]}</strong><br>
+<strong>💰 Economia em relação ao pior:</strong> R$ {max(total_simples, total_presumido, total_real) - melhor[1]:,.2f}
+"""
+
+            self.lbl_resumo_fiscal.setText(simulacao)
+            self.lbl_dre_fiscal.setText("Simulação comparativa de regimes")
+            self.lbl_memoria_fiscal.setText("Utilize 'Memória de Cálculo' após selecionar o regime desejado")
+            self.grupo_resultado_fiscal.setVisible(True)
+
+            QMessageBox.information(self, "Simulação Concluída",
+                f"Melhor regime: {melhor[0]}\nTotal: R$ {melhor[1]:,.2f}")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Erro na simulação: {str(e)}")
+
+    def exportar_resultado_fiscal(self):
+        """Exporta o resultado atual para arquivo TXT"""
+        try:
+            if not hasattr(self, 'ultimo_resultado_fiscal') or self.ultimo_resultado_fiscal is None:
+                QMessageBox.warning(self, "Aviso", "Realize um cálculo primeiro antes de exportar")
+                return
+
+            from PyQt6.QtWidgets import QFileDialog
+
+            arquivo, _ = QFileDialog.getSaveFileName(
+                self,
+                "Exportar Resultado",
+                f"calculo_fiscal_{self.ultimo_resultado_fiscal.mes:02d}_{self.ultimo_resultado_fiscal.ano}.txt",
+                "Arquivo de Texto (*.txt)"
+            )
+
+            if arquivo:
+                calc = CalculoProfissional()
+                dre = calc.gerar_dre(self.ultimo_resultado_fiscal)
+                memoria = calc.gerar_memoria_calculo(self.ultimo_resultado_fiscal)
+
+                with open(arquivo, 'w', encoding='utf-8') as f:
+                    f.write("=" * 70 + "\n")
+                    f.write("AUDITAR CONTABILIDADE - RESULTADO DO CÁLCULO FISCAL\n")
+                    f.write("=" * 70 + "\n\n")
+                    f.write(dre)
+                    f.write("\n\n")
+                    f.write(memoria)
+
+                QMessageBox.information(self, "Exportado", f"Resultado exportado para:\n{arquivo}")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Erro ao exportar: {str(e)}")
 
 
 def main():
