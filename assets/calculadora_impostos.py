@@ -196,20 +196,22 @@ class CalculadoraImpostos:
         # Calcular CSLL: 9% sobre a base
         csll = base_calculo * 0.09
 
-        # PIS: 0,65% sobre receita bruta
-        pis = receita_bruta * 0.0065
+        # PIS: 1,65% sobre receita bruta (regime não-cumulativo - Lucro Real)
+        pis = receita_bruta * 0.0165
 
-        # COFINS: 3% sobre receita bruta
-        cofins = receita_bruta * 0.03
+        # COFINS: 7,6% sobre receita bruta (regime não-cumulativo - Lucro Real)
+        cofins = receita_bruta * 0.076
 
         # ISS (média 3% para serviços) - informativo, não entra no total federal
         iss = receita_bruta * 0.03
 
-        # ICMS (média 12% para comércio) - informativo, não entra no total federal
-        icms = receita_bruta * 0.12
+        # ICMS (média 12% para comércio - por dentro: divide por 1.12) - informativo
+        icms = (receita_bruta / 1.12) * 0.12
 
-        # Total de impostos sobre o lucro (IRPJ + CSLL) - conforme expectativa do usuário
-        total_impostos = irpj + csll
+        # Separar impostos por tipo conforme sugestão profissional
+        impostos_sobre_lucro = irpj + csll
+        impostos_sobre_faturamento = pis + cofins
+        total_impostos = impostos_sobre_lucro + impostos_sobre_faturamento
 
         return {
             'regime': 'Lucro Real',
@@ -222,6 +224,8 @@ class CalculadoraImpostos:
             'pis_cofins': pis + cofins,
             'iss': iss,
             'icms': icms,
+            'impostos_sobre_lucro': impostos_sobre_lucro,
+            'impostos_sobre_faturamento': impostos_sobre_faturamento,
             'total_impostos': total_impostos,
             'descricao': f'Lucro Líquido: R$ {lucro_liquido:,.2f} | Base Cálculo: R$ {base_calculo:,.2f}'
         }

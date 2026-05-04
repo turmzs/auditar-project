@@ -1036,19 +1036,24 @@ Detalhamento:
                 if resultado['icms'] > 0:
                     detalhes += f"ICMS: R$ {resultado['icms']:.2f}\n"
             elif regime == 'real':
-                detalhes += f"Lucro Líquido: R$ {resultado['lucro_liquido']:.2f}\n"
-                detalhes += f"Base de Cálculo: R$ {resultado['base_calculo']:.2f}\n"
-                detalhes += f"IRPJ: R$ {resultado['irpj']:.2f}\n"
-                detalhes += f"CSLL: R$ {resultado['csll']:.2f}\n"
-                detalhes += f"PIS: R$ {resultado['pis']:.2f}\n"
-                detalhes += f"COFINS: R$ {resultado['cofins']:.2f}\n"
-                detalhes += f"PIS/COFINS: R$ {resultado['pis_cofins']:.2f}\n"
+                detalhes += f"Lucro Líquido: R$ {resultado['lucro_liquido']:,.2f}\n"
+                detalhes += f"Base de Cálculo: R$ {resultado['base_calculo']:,.2f}\n\n"
+                detalhes += "─ Impostos sobre o LUCRO ─\n"
+                detalhes += f"  IRPJ (15% + adicional): R$ {resultado['irpj']:,.2f}\n"
+                detalhes += f"  CSLL (9%):                R$ {resultado['csll']:,.2f}\n"
+                detalhes += f"  Subtotal sobre Lucro:     R$ {resultado['impostos_sobre_lucro']:,.2f}\n\n"
+                detalhes += "─ Impostos sobre FATURAMENTO ─\n"
+                detalhes += f"  PIS (1,65% - não cumulativo): R$ {resultado['pis']:,.2f}\n"
+                detalhes += f"  COFINS (7,6% - não cumulativo): R$ {resultado['cofins']:,.2f}\n"
+                detalhes += f"  Subtotal sobre Faturam.:      R$ {resultado['impostos_sobre_faturamento']:,.2f}\n"
                 if resultado['iss'] > 0:
-                    detalhes += f"ISS: R$ {resultado['iss']:.2f}\n"
+                    detalhes += f"  ISS (3% - municipal/serviço): R$ {resultado['iss']:,.2f}\n"
                 if resultado['icms'] > 0:
-                    detalhes += f"ICMS: R$ {resultado['icms']:.2f}\n"
+                    detalhes += f"  ICMS (12% por dentro - comércio): R$ {resultado['icms']:,.2f}\n"
 
-            detalhes += f"\nTotal de Impostos: R$ {resultado['total_impostos']:.2f}"
+            detalhes += f"\n═══════════════════════════════════\n"
+            detalhes += f"TOTAL DE IMPOSTOS: R$ {resultado['total_impostos']:,.2f}\n"
+            detalhes += f"═══════════════════════════════════"
 
             QMessageBox.information(self, "Cálculo de Impostos", detalhes)
 
