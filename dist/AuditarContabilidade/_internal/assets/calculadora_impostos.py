@@ -124,7 +124,7 @@ class CalculadoraImpostos:
 
         # Calcular IRPJ: 15% sobre a base
         irpj = base_irpj * 0.15
-        # Adicional de IRPJ (10% sobre o excedente de R$ 20.000/mês)
+        # Adicional de IRPJ (10% sobre o excedente de R$ 20.000/mês na base de cálculo)
         if base_irpj > 20000:
             irpj += (base_irpj - 20000) * 0.10
 
@@ -189,7 +189,7 @@ class CalculadoraImpostos:
 
         # Calcular IRPJ: 15% sobre a base
         irpj = base_calculo * 0.15
-        # Adicional de 10% sobre lucro acima de R$ 20.000/mês
+        # Adicional de 10% sobre o excedente de R$ 20.000/mês na base de cálculo
         if base_calculo > 20000:
             irpj += (base_calculo - 20000) * 0.10
 
@@ -224,6 +224,80 @@ class CalculadoraImpostos:
             'icms': icms,
             'total_impostos': total_impostos,
             'descricao': f'Lucro Líquido: R$ {lucro_liquido:,.2f} | Base Cálculo: R$ {base_calculo:,.2f}'
+        }
+
+    @staticmethod
+    def calcular_lucro_presumido_trimestral(receita_bruta_trimestral, tipo_atividade='servicos'):
+        """
+        Calcula os impostos federais do Lucro Presumido para um trimestre.
+
+        Args:
+            receita_bruta_trimestral: Soma da receita dos 3 meses do trimestre
+            tipo_atividade: 'servicos', 'comercio', 'industria' ou 'transporte'
+
+        Returns:
+            dict: Dicionário com os valores detalhados dos impostos trimestrais
+        """
+        # Define as alíquotas de presunção
+        presuncoes = {
+            'servicos': {'irpj': 0.32, 'csll': 0.32},
+            'comercio': {'irpj': 0.08, 'csll': 0.12},
+            'industria': {'irpj': 0.08, 'csll': 0.12},
+            'transporte': {'irpj': 0.16, 'csll': 0.16}
+        }
+
+        pres = presuncoes.get(tipo_atividade, presuncoes['servicos'])
+
+        # Calcula as BASES DE CÁLCULO trimestrais
+        base_irpj_trimestral = receita_bruta_trimestral * pres['irpj']
+        base_csll_trimestral = receita_bruta_trimestral * pres['csll']
+
+        # Calcula o IRPJ (com adicional TRIMESTRAL - R$ 60.000)
+        irpj_normal = base_irpj_trimestral * 0.15
+        if base_irpj_trimestral > 60000:  # Limite TRIMESTRAL
+            excesso = base_irpj_trimestral - 60000
+            irpj_adicional = excesso * 0.10
+            irpj_total = irpj_normal + irpj_adicional
+        else:
+            irpj_total = irpj_normal
+            irpj_adicional = 0
+
+        # Calcula os outros impostos
+        csll_total = base_csll_trimestral * 0.09
+        pis_total = receita_bruta_trimestral * 0.0065
+        cofins_total = receita_bruta_trimestral * 0.03
+
+        # ISS (para serviços) - informativo, não entra no total federal
+        if tipo_atividade == 'servicos':
+            iss_total = receita_bruta_trimestral * 0.03
+            icms_total = 0
+        else:
+            iss_total = 0
+            icms_total = receita_bruta_trimestral * 0.12
+
+        # Soma tudo
+        total_impostos = irpj_total + csll_total + pis_total + cofins_total
+
+        # Retorna todos os valores
+        return {
+            'regime': 'Lucro Presumido Trimestral',
+            'tipo_atividade': tipo_atividade,
+            'receita_bruta_trimestral': round(receita_bruta_trimestral, 2),
+            'presuncao_irpj': pres['irpj'] * 100,
+            'presuncao_csll': pres['csll'] * 100,
+            'base_irpj_trimestral': round(base_irpj_trimestral, 2),
+            'base_csll_trimestral': round(base_csll_trimestral, 2),
+            'irpj_normal': round(irpj_normal, 2),
+            'irpj_adicional': round(irpj_adicional, 2),
+            'irpj_total': round(irpj_total, 2),
+            'csll_total': round(csll_total, 2),
+            'pis_total': round(pis_total, 2),
+            'cofins_total': round(cofins_total, 2),
+            'iss_total': round(iss_total, 2),
+            'icms_total': round(icms_total, 2),
+            'total_impostos_trimestral': round(total_impostos, 2),
+            'media_mensal_impostos': round(total_impostos / 3, 2),
+            'descricao': f'Presunção IRPJ: {pres["irpj"]*100:.0f}% | CSLL: {pres["csll"]*100:.0f}%'
         }
 
     @staticmethod

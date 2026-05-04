@@ -15,14 +15,22 @@ Sistema desktop completo para gestão contábil de empresas, com cálculo autom�
   - Anexo III (Serviços)
   - Fórmula: `(Receita × Alíquota) - (Parcela a Deduzir / 12)`
 
-- **Lucro Presumido**: Cálculo com presunções por tipo de atividade
+- **Lucro Presumido (Mensal)**: Cálculo com presunções por tipo de atividade
   - Serviços: 32% para IRPJ e CSLL
   - Comércio/Indústria: 8% para IRPJ, 12% para CSLL
   - Transporte: 16% para IRPJ e CSLL
-  - IRPJ: 15% + adicional de 10% acima de R$ 20.000
+  - IRPJ: 15% + adicional de 10% acima de R$ 20.000 (base de cálculo mensal)
   - CSLL: 9%
   - PIS: 0,65%
   - COFINS: 3%
+
+- **Lucro Presumido (Trimestral)**: Cálculo específico para DARF trimestral
+  - Soma das receitas dos 3 meses do trimestre
+  - IRPJ: 15% + adicional de 10% acima de R$ 60.000 (base de cálculo trimestral)
+  - CSLL: 9%
+  - PIS: 0,65%
+  - COFINS: 3%
+  - Exibe total trimestral e média mensal para provisionamento
 
 - **Lucro Real**: Cálculo sobre o lucro efetivo
   - Base: Receita - Custos - Despesas

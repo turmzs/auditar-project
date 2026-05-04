@@ -282,7 +282,20 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(page, "Dados Mensais")
         layout = QVBoxLayout(page)
         layout.setSpacing(10)
-        
+
+        # Criar área com scroll
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        # Widget interno para o scroll
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setSpacing(10)
+        scroll.setWidget(scroll_content)
+        layout.addWidget(scroll)
+
         # Selecionar empresa
         selecao_layout = QHBoxLayout()
         selecao_layout.addWidget(QLabel("Empresa:"))
@@ -290,11 +303,11 @@ class MainWindow(QMainWindow):
         self.combo_empresa_dados.setMinimumWidth(300)
         selecao_layout.addWidget(self.combo_empresa_dados)
         selecao_layout.addStretch()
-        layout.addLayout(selecao_layout)
-        
+        scroll_layout.addLayout(selecao_layout)
+
         # Grupo: Novo Mes
         grupo_novo = QGroupBox("Adicionar Mes")
-        layout.addWidget(grupo_novo)
+        scroll_layout.addWidget(grupo_novo)
         
         form = QFormLayout(grupo_novo)
         
@@ -382,17 +395,95 @@ class MainWindow(QMainWindow):
         btn_adicionar = QPushButton("Adicionar Mes")
         btn_adicionar.clicked.connect(self.adicionar_dados_mensais)
         form.addRow(btn_adicionar)
-        
+
         # Grupo: Dados
         grupo_dados = QGroupBox("Dados Mensais Cadastrados")
-        layout.addWidget(grupo_dados, stretch=1)
-        
+        scroll_layout.addWidget(grupo_dados)
+
         dados_layout = QVBoxLayout(grupo_dados)
         self.tabela_dados = QTableWidget()
         self.tabela_dados.setColumnCount(7)
         self.tabela_dados.setHorizontalHeaderLabels(["Mes/Ano", "Receita", "Custos*", "Despesas*", "Impostos", "Lucro", "Acao"])
         self.tabela_dados.setToolTip("* Custos e Despesas com detalhamento completo (salários, aluguel, água/luz, etc.)")
         dados_layout.addWidget(self.tabela_dados)
+
+        # Grupo: Cálculo Trimestral (apenas para Lucro Presumido)
+        self.grupo_trimestral = QGroupBox("📊 Cálculo Trimestral - Lucro Presumido")
+        self.grupo_trimestral.setVisible(False)  # Inicialmente oculto
+        scroll_layout.addWidget(self.grupo_trimestral)
+
+        trimestral_layout = QVBoxLayout(self.grupo_trimestral)
+
+        # Seleção de trimestre e ano
+        selecao_trimestral_layout = QHBoxLayout()
+        selecao_trimestral_layout.addWidget(QLabel("Trimestre:"))
+        self.combo_trimestre = QComboBox()
+        self.combo_trimestre.addItem("1º Trimestre (Jan/Fev/Mar)", 1)
+        self.combo_trimestre.addItem("2º Trimestre (Abr/Mai/Jun)", 2)
+        self.combo_trimestre.addItem("3º Trimestre (Jul/Ago/Set)", 3)
+        self.combo_trimestre.addItem("4º Trimestre (Out/Nov/Dez)", 4)
+        selecao_trimestral_layout.addWidget(self.combo_trimestre)
+
+        selecao_trimestral_layout.addWidget(QLabel("  Ano:"))
+        self.combo_ano_trimestral = QComboBox()
+        self.combo_ano_trimestral.addItem("2024", 2024)
+        self.combo_ano_trimestral.addItem("2025", 2025)
+        self.combo_ano_trimestral.addItem("2026", 2026)
+        selecao_trimestral_layout.addWidget(self.combo_ano_trimestral)
+
+        selecao_trimestral_layout.addStretch()
+        trimestral_layout.addLayout(selecao_trimestral_layout)
+
+        # Tipo de atividade
+        atividade_trimestral_layout = QHBoxLayout()
+        atividade_trimestral_layout.addWidget(QLabel("Tipo de Atividade:"))
+        self.combo_atividade_trimestral = QComboBox()
+        self.combo_atividade_trimestral.addItem("Serviços (32% presunção)", "servicos")
+        self.combo_atividade_trimestral.addItem("Comércio (8% IRPJ, 12% CSLL)", "comercio")
+        self.combo_atividade_trimestral.addItem("Indústria (8% IRPJ, 12% CSLL)", "industria")
+        self.combo_atividade_trimestral.addItem("Transporte (16% presunção)", "transporte")
+        atividade_trimestral_layout.addWidget(self.combo_atividade_trimestral)
+        atividade_trimestral_layout.addStretch()
+        trimestral_layout.addLayout(atividade_trimestral_layout)
+
+        # Campos de receita mensal
+        grupo_receitas_trimestral = QGroupBox("Receita Bruta Mensal (R$)")
+        trimestral_layout.addWidget(grupo_receitas_trimestral)
+        receitas_trimestral_layout = QGridLayout(grupo_receitas_trimestral)
+
+        receitas_trimestral_layout.addWidget(QLabel("Mês 1:"), 0, 0)
+        self.txt_receita_mes1 = QLineEdit()
+        self.txt_receita_mes1.setPlaceholderText("0,00")
+        receitas_trimestral_layout.addWidget(self.txt_receita_mes1, 0, 1)
+
+        receitas_trimestral_layout.addWidget(QLabel("Mês 2:"), 1, 0)
+        self.txt_receita_mes2 = QLineEdit()
+        self.txt_receita_mes2.setPlaceholderText("0,00")
+        receitas_trimestral_layout.addWidget(self.txt_receita_mes2, 1, 1)
+
+        receitas_trimestral_layout.addWidget(QLabel("Mês 3:"), 2, 0)
+        self.txt_receita_mes3 = QLineEdit()
+        self.txt_receita_mes3.setPlaceholderText("0,00")
+        receitas_trimestral_layout.addWidget(self.txt_receita_mes3, 2, 1)
+
+        # Botão calcular
+        btn_calcular_trimestral = QPushButton("Calcular Impostos Trimestrais")
+        btn_calcular_trimestral.setStyleSheet("background-color: #007bff; color: white; font-weight: bold; padding: 10px;")
+        btn_calcular_trimestral.clicked.connect(self.calcular_impostos_trimestral)
+        trimestral_layout.addWidget(btn_calcular_trimestral)
+
+        # Área de resultados
+        self.resultados_trimestral = QGroupBox("Resultados do Trimestre")
+        self.resultados_trimestral.setVisible(False)
+        trimestral_layout.addWidget(self.resultados_trimestral)
+
+        resultados_trimestral_layout = QVBoxLayout(self.resultados_trimestral)
+        self.lbl_resultados_trimestral = QLabel()
+        self.lbl_resultados_trimestral.setStyleSheet("font-family: Consolas, monospace; font-size: 11px;")
+        resultados_trimestral_layout.addWidget(self.lbl_resultados_trimestral)
+
+        # Conectar mudança de empresa para verificar regime
+        self.combo_empresa_dados.currentIndexChanged.connect(self.verificar_regime_para_trimestral)
 
     def criar_aba_dashboard(self):
         page = QWidget()
@@ -582,6 +673,90 @@ class MainWindow(QMainWindow):
         self.figure.tight_layout()
         self.canvas.draw()
 
+    def verificar_regime_para_trimestral(self):
+        """Verifica se a empresa selecionada é Lucro Presumido e mostra/oculta o cálculo trimestral"""
+        empresa_id = self.combo_empresa_dados.currentData()
+        if not empresa_id:
+            self.grupo_trimestral.setVisible(False)
+            return
+
+        empresa = self.db.fetchone(
+            "SELECT regime_tributario FROM empresas WHERE id = ?",
+            (empresa_id,)
+        )
+
+        if empresa and empresa[0] == 'presumido':
+            self.grupo_trimestral.setVisible(True)
+        else:
+            self.grupo_trimestral.setVisible(False)
+
+    def calcular_impostos_trimestral(self):
+        """Calcula os impostos trimestrais do Lucro Presumido"""
+        try:
+            # Obter valores das receitas
+            receita1 = float(self.txt_receita_mes1.text().replace(',', '.') or 0)
+            receita2 = float(self.txt_receita_mes2.text().replace(',', '.') or 0)
+            receita3 = float(self.txt_receita_mes3.text().replace(',', '.') or 0)
+
+            receita_trimestral = receita1 + receita2 + receita3
+            tipo_atividade = self.combo_atividade_trimestral.currentData()
+
+            if receita_trimestral == 0:
+                QMessageBox.warning(self, "Aviso", "Digite pelo menos uma receita mensal.")
+                return
+
+            # Calcular impostos
+            calc = CalculadoraImpostos()
+            resultado = calc.calcular_lucro_presumido_trimestral(receita_trimestral, tipo_atividade)
+
+            # Exibir resultados
+            trimestre_text = self.combo_trimestre.currentText()
+            ano = self.combo_ano_trimestral.currentText()
+
+            texto_resultado = f"""
+═══════════════════════════════════════════════════════════
+  RESULTADO: {trimestre_text} de {ano}
+═══════════════════════════════════════════════════════════
+
+Receita Bruta Trimestral:       R$ {resultado['receita_bruta_trimestral']:,.2f}
+
+───────────────────────────────────────────────────────────
+BASES DE CÁLCULO
+───────────────────────────────────────────────────────────
+Base IRPJ ({resultado['presuncao_irpj']:.0f}%):          R$ {resultado['base_irpj_trimestral']:,.2f}
+Base CSLL ({resultado['presuncao_csll']:.0f}%):          R$ {resultado['base_csll_trimestral']:,.2f}
+
+───────────────────────────────────────────────────────────
+IMPOSTOS FEDERAIS TRIMESTRAIS
+───────────────────────────────────────────────────────────
+IRPJ Normal (15%):               R$ {resultado['irpj_normal']:,.2f}
+IRPJ Adicional (10% s/ excedente): R$ {resultado['irpj_adicional']:,.2f}
+IRPJ TOTAL:                       R$ {resultado['irpj_total']:,.2f}
+
+CSLL (9%):                       R$ {resultado['csll_total']:,.2f}
+PIS (0,65%):                     R$ {resultado['pis_total']:,.2f}
+COFINS (3%):                     R$ {resultado['cofins_total']:,.2f}
+
+───────────────────────────────────────────────────────────
+TOTAL DE IMPOSTOS FEDERAIS
+───────────────────────────────────────────────────────────
+✅ Total Trimestral:              R$ {resultado['total_impostos_trimestral']:,.2f}
+💡 Média Mensal (provisionamento): R$ {resultado['media_mensal_impostos']:,.2f}
+
+───────────────────────────────────────────────────────────
+INFORMATIVO (Não entra no total federal)
+───────────────────────────────────────────────────────────
+ISS (municipal):                  R$ {resultado['iss_total']:,.2f}
+ICMS (estadual):                 R$ {resultado['icms_total']:,.2f}
+═══════════════════════════════════════════════════════════
+            """
+
+            self.lbl_resultados_trimestral.setText(texto_resultado)
+            self.resultados_trimestral.setVisible(True)
+
+        except ValueError:
+            QMessageBox.warning(self, "Erro", "Digite valores numéricos válidos para as receitas.")
+
     def criar_aba_relatorios(self):
         page = QWidget()
         self.tabs.addTab(page, "Relatorios")
@@ -742,6 +917,10 @@ class MainWindow(QMainWindow):
             self.combo_empresa_dados.addItem(texto, emp[0])
             self.combo_empresa_rel.addItem(texto, emp[0])
             self.combo_empresa_dash.addItem(texto, emp[0])
+
+        # Verificar regime para mostrar/ocultar cálculo trimestral
+        if empresas:
+            self.verificar_regime_para_trimestral()
 
     def excluir_empresa(self, empresa_id):
         resposta = QMessageBox.question(self, "Confirmar", "Deseja excluir esta empresa?")
