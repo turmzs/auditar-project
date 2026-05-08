@@ -212,6 +212,8 @@ class CalculoProfissional:
         resultado.base_irpj_apos_compensacao = base_irpj_apos_compensacao
         
         # 🔒 Trava: se lucro <= 0, não há IRPJ/CSLL
+        irpj_normal = 0
+        irpj_adicional = 0
         if base_calculo <= 0:
             resultado.irpj = 0
             resultado.csll = 0

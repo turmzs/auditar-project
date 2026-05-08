@@ -227,7 +227,7 @@ class CalculadoraImpostos:
             'impostos_sobre_lucro': impostos_sobre_lucro,
             'impostos_sobre_faturamento': impostos_sobre_faturamento,
             'total_impostos': total_impostos,
-            'descricao': f'Lucro Líquido: R$ {lucro_liquido:,.2f} | Base Cálculo: R$ {base_calculo:,.2f}'
+            'descricao': f'Receita Bruta: R$ {lucro_liquido:,.2f} | Base Cálculo: R$ {base_calculo:,.2f}'
         }
 
     @staticmethod
