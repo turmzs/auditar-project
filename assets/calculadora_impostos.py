@@ -124,9 +124,9 @@ class CalculadoraImpostos:
 
         # Calcular IRPJ: 15% sobre a base
         irpj = base_irpj * 0.15
-        # Adicional de IRPJ (10% sobre o excedente de R$ 20.000/mês na base de cálculo)
-        if base_irpj > 20000:
-            irpj += (base_irpj - 20000) * 0.10
+        # Adicional de IRPJ (10% sobre o excedente de R$ 60.000/trimestral na base de cálculo)
+        if base_irpj > 60000:
+            irpj += (base_irpj - 60000) * 0.10
 
         # Calcular CSLL: 9% sobre a base
         csll = base_csll * 0.09
@@ -189,9 +189,9 @@ class CalculadoraImpostos:
 
         # Calcular IRPJ: 15% sobre a base
         irpj = base_calculo * 0.15
-        # Adicional de 10% sobre o excedente de R$ 20.000/mês na base de cálculo
-        if base_calculo > 20000:
-            irpj += (base_calculo - 20000) * 0.10
+        # Adicional de 10% sobre o excedente de R$ 60.000 (trimestral) na base de cálculo
+        if base_calculo > 60000:
+            irpj += (base_calculo - 60000) * 0.10
 
         # Calcular CSLL: 9% sobre a base
         csll = base_calculo * 0.09

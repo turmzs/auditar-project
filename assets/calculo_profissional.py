@@ -219,11 +219,11 @@ class CalculoProfissional:
             resultado.csll = 0
             resultado.subtotal_lucro = 0
         else:
-            # IRPJ: 15% + adicional 10% acima de R$ 20.000
+            # IRPJ: 15% + adicional 10% acima de R$ 60.000 (trimestral)
             irpj_normal = base_irpj_apos_compensacao * 0.15
             irpj_adicional = 0
-            if base_irpj_apos_compensacao > 20000:
-                irpj_adicional = (base_irpj_apos_compensacao - 20000) * 0.10
+            if base_irpj_apos_compensacao > 60000:
+                irpj_adicional = (base_irpj_apos_compensacao - 60000) * 0.10
             resultado.irpj = irpj_normal + irpj_adicional
             
             # CSLL: 9% (sem compensação de prejuízo)
