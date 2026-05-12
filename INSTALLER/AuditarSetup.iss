@@ -2,7 +2,7 @@
 ; Gera um único arquivo .exe que instala tudo automaticamente
 
 #define AppName "AUDITAR - Planejamento Tributário"
-#define AppVersion "3.0"
+#define AppVersion "6.78.2"
 #define AppPublisher "AUDITAR S/S"
 #define AppURL "https://auditar.com.br"
 #define AppExeName "AuditarContabilidade.exe"

@@ -25,8 +25,17 @@ class CalculadoraImpostos:
         6: {'faixa_anual': 4_800_000, 'aliquota': 0.33, 'parcela_deduzir': 648_000},
     }
 
+    TABELA_ANEXO_V_SERVICOS = {
+        1: {'faixa_anual': 180_000, 'aliquota': 0.155, 'parcela_deduzir': 0},
+        2: {'faixa_anual': 360_000, 'aliquota': 0.18, 'parcela_deduzir': 4_500},
+        3: {'faixa_anual': 720_000, 'aliquota': 0.195, 'parcela_deduzir': 9_900},
+        4: {'faixa_anual': 1_800_000, 'aliquota': 0.205, 'parcela_deduzir': 17_100},
+        5: {'faixa_anual': 3_600_000, 'aliquota': 0.23, 'parcela_deduzir': 62_100},
+        6: {'faixa_anual': 4_800_000, 'aliquota': 0.305, 'parcela_deduzir': 540_000},
+    }
+
     @staticmethod
-    def calcular_simples_nacional(receita_bruta, faturamento_anual=0, tipo_atividade='comercio'):
+    def calcular_simples_nacional(receita_bruta, faturamento_anual=0, tipo_atividade='comercio', **kwargs):
         """
         Calcula impostos pelo Simples Nacional
         Baseado nas alíquotas da tabela 2024 com parcela a deduzir
@@ -34,7 +43,8 @@ class CalculadoraImpostos:
         Args:
             receita_bruta: Receita bruta mensal
             faturamento_anual: Faturamento acumulado no ano (para definir a alíquota)
-            tipo_atividade: 'comercio' (Anexo I) ou 'servicos' (Anexo III)
+            tipo_atividade: 'comercio' (Anexo I), 'servicos' (Anexo III) ou 'fator_r' (Anexo III se payroll >= 28%, else V)
+            folha_salarios_anual: Folha de salários acumulada 12 meses (para Fator R)
 
         Returns:
             dict: Detalhamento dos impostos
@@ -43,11 +53,29 @@ class CalculadoraImpostos:
         if faturamento_anual == 0:
             faturamento_anual = receita_bruta * 12
 
-        # Escolher a tabela correta baseada no tipo de atividade
+        # Escolher a tabela correta baseada no tipo de atividade e Fator R
+        nome_anexo = "I"
         if tipo_atividade == 'comercio':
             tabela = CalculadoraImpostos.TABELA_ANEXO_I_COMERCIO
-        else:  # servicos
+            nome_anexo = "I"
+        elif tipo_atividade == 'servicos':
             tabela = CalculadoraImpostos.TABELA_ANEXO_III_SERVICOS
+            nome_anexo = "III"
+        elif tipo_atividade == 'fator_r':
+            # Lógica Fator R: Folha / Faturamento >= 28% -> Anexo III, senão Anexo V
+            folha_12 = kwargs.get('folha_salarios_anual', 0)
+            faturamento_12 = faturamento_anual
+            fator_r = (folha_12 / faturamento_12) if faturamento_12 > 0 else 0
+            
+            if fator_r >= 0.28:
+                tabela = CalculadoraImpostos.TABELA_ANEXO_III_SERVICOS
+                nome_anexo = "III (Fator R >= 28%)"
+            else:
+                tabela = CalculadoraImpostos.TABELA_ANEXO_V_SERVICOS
+                nome_anexo = "V (Fator R < 28%)"
+        else:
+            tabela = CalculadoraImpostos.TABELA_ANEXO_III_SERVICOS
+            nome_anexo = "III"
 
         # Encontrar a faixa correta
         faixa_encontrada = None
@@ -84,6 +112,7 @@ class CalculadoraImpostos:
 
         return {
             'regime': 'Simples Nacional',
+            'anexo': nome_anexo,
             'faixa': num_faixa,
             'aliquota_nominal': aliquota * 100,
             'parcela_deduzir_anual': faixa_encontrada['parcela_deduzir'],
@@ -92,7 +121,7 @@ class CalculadoraImpostos:
             'iss': iss,
             'icms': icms_estimado,
             'total_impostos': valor_das,
-            'descricao': f'Faixa {num_faixa}: {aliquota * 100:.1f}% - R$ {parcela_deduzir_mensal:.2f} dedução mensal'
+            'descricao': f'Anexo {nome_anexo}, Faixa {num_faixa}: {aliquota * 100:.1f}%'
         }
 
     @staticmethod
@@ -124,7 +153,7 @@ class CalculadoraImpostos:
 
         # Calcular IRPJ: 15% sobre a base
         irpj = base_irpj * 0.15
-        # Adicional de IRPJ (10% sobre o excedente de R$ 20.000/mês na base de cálculo)
+        # Adicional de IRPJ (10% sobre o excedente de R$ 20.000 MENSAL na base de cálculo)
         if base_irpj > 20000:
             irpj += (base_irpj - 20000) * 0.10
 
@@ -189,7 +218,7 @@ class CalculadoraImpostos:
 
         # Calcular IRPJ: 15% sobre a base
         irpj = base_calculo * 0.15
-        # Adicional de 10% sobre o excedente de R$ 20.000/mês na base de cálculo
+        # Adicional de 10% sobre o excedente de R$ 20.000 (mensal) na base de cálculo
         if base_calculo > 20000:
             irpj += (base_calculo - 20000) * 0.10
 
@@ -227,7 +256,7 @@ class CalculadoraImpostos:
             'impostos_sobre_lucro': impostos_sobre_lucro,
             'impostos_sobre_faturamento': impostos_sobre_faturamento,
             'total_impostos': total_impostos,
-            'descricao': f'Lucro Líquido: R$ {lucro_liquido:,.2f} | Base Cálculo: R$ {base_calculo:,.2f}'
+            'descricao': f'Receita Bruta: R$ {lucro_liquido:,.2f} | Base Cálculo: R$ {base_calculo:,.2f}'
         }
 
     @staticmethod

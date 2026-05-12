@@ -1,0 +1,29 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.venv/
+env/
+venv/
+ENV/
+
+# PyInstaller
+#  Usually these files are written by a python script, and contain the bin and lib directories
+#  for a PyInstaller set of target binaries
+build/
+dist/
+*.spec
+
+# Installer files
+INSTALLER/*.exe
+INSTALLER/Output/
+
+# SQLite databases
+*.sqlite
+*.db
+
+# OS generated files
+.DS_Store
+Thumbs.db

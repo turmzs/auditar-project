@@ -20,7 +20,7 @@ from pptx.enum.shapes import MSO_SHAPE
 
 # Configurações
 OLLAMA_HOST = "http://localhost:11434"
-DEFAULT_MODEL = "llama3.2"
+DEFAULT_MODEL = "tinyllama"
 
 
 class GeradorIAInteligente:
@@ -36,10 +36,10 @@ class GeradorIAInteligente:
         try:
             import urllib.request
             urllib.request.urlopen(f"{OLLAMA_HOST}/api/tags", timeout=2)
-            print("✅ Ollama detectado")
+            print("Ollama detectado")
             return True
         except:
-            print("⚠️  Ollama não disponível - usando fallback")
+            print("Ollama nao disponivel - usando fallback")
             return False
     
     async def gerar_apresentacao_inteligente(
@@ -59,12 +59,12 @@ class GeradorIAInteligente:
         - "Apresentação clean com branco e cinza, tipografia profissional, ícones sutis"
         """
         
-        print(f"\n🤖 Analisando comando: '{comando_estilo}'")
-        print(f"📊 Dados: {len(dados_mensais)} meses de {nome_empresa}")
+        print(f"\nAnalisando comando: '{comando_estilo}'")
+        print(f"Dados: {len(dados_mensais)} meses de {nome_empresa}")
         
         # 1. Extrair requisitos de design via IA
         requisitos_design = await self._analisar_requisitos(comando_estilo)
-        print(f"🎨 Design escolhido: {requisitos_design.get('nome_estilo', 'Personalizado')}")
+        print(f"Design escolhido: {requisitos_design.get('nome_estilo', 'Personalizado')}")
         
         # 2. Gerar código Python dinâmico para os slides
         codigo_gerado = await self._gerar_codigo_slides(
@@ -76,7 +76,7 @@ class GeradorIAInteligente:
         )
         
         # 3. Executar código gerado
-        print("🔨 Construindo apresentação...")
+        print("Construindo apresentacao...")
         filepath = await self._executar_codigo_gerado(
             codigo_gerado,
             dados_mensais,
@@ -85,13 +85,51 @@ class GeradorIAInteligente:
             requisitos_design
         )
         
-        print(f"✅ Apresentação gerada: {filepath}")
+        print(f"Apresentacao gerada: {filepath}")
         return filepath
+
+    async def analisar_financas(
+        self,
+        dados_mensais: List[Dict],
+        nome_empresa: str
+    ) -> str:
+        """Analisa os dados financeiros e retorna um diagnóstico em texto"""
+        
+        if not self.ollama_available:
+            return "Ollama não disponível para análise. Verifique se o serviço está rodando."
+
+        # Preparar dados para o prompt
+        resumo = []
+        for d in dados_mensais[-6:]: # Últimos 6 meses
+            resumo.append(f"Mês {d['mes']}/{d['ano']}: Receita R$ {d['receita_bruta']:,.2f}, Custos R$ {d['custos']:,.2f}, Despesas R$ {d['despesas']:,.2f}, Lucro R$ {d['lucro_operacional']:,.2f}")
+        
+        dados_texto = "\n".join(resumo)
+        
+        prompt = f"""[SYSTEM]: Você é um consultor financeiro brasileiro. Responda APENAS em PORTUGUÊS DO BRASIL. Proibido usar espanhol ou inglês.
+
+[CONTEXTO]: Análise financeira da empresa {nome_empresa}.
+[DADOS]:
+{dados_texto}
+
+[TAREFA]: Escreva um diagnóstico financeiro curto:
+- Identifique 1 tendência clara.
+- Dê 2 sugestões estratégicas.
+- Use tom profissional.
+- Máximo 2 parágrafos.
+
+DIAGNÓSTICO EM PORTUGUÊS:"""
+
+        try:
+            print(f"Analisando finanças de {nome_empresa}...")
+            analise = await self._call_ollama(prompt)
+            return analise.strip()
+        except Exception as e:
+            return f"Erro ao gerar análise: {str(e)}"
     
     async def _analisar_requisitos(self, comando: str) -> Dict[str, Any]:
         """Usa IA para extrair requisitos de design do comando do usuário"""
 
-        print(f"🔍 Iniciando análise de requisitos para: '{comando}'")
+        print(f"Iniciando analise de requisitos para: '{comando}'")
 
         prompt = f"""Você é um designer especialista em apresentações corporativas.
 Analise o seguinte comando e extraia as especificações de design em formato JSON:
@@ -140,82 +178,82 @@ Responda APENAS com JSON válido no formato:
 JSON:"""
 
         if not self.ollama_available:
-            print("⚠️  Ollama não disponível, usando fallback")
+            print("Ollama nao disponivel, usando fallback")
             return self._design_fallback(comando)
 
         try:
-            print("📡 Chamando Ollama...")
+            print("Chamando Ollama...")
             response = await self._call_ollama(prompt)
-            print(f"📦 Resposta recebida (tamanho: {len(response)} chars)")
+            print(f"Resposta recebida (tamanho: {len(response)} chars)")
 
             # Extrair JSON da resposta
             json_str = self._extrair_json(response)
-            print(f"🔧 JSON extraído (tamanho: {len(json_str)} chars)")
+            print(f"JSON extraido (tamanho: {len(json_str)} chars)")
 
             # Tentar fazer parsing do JSON
             requisitos = None
             try:
                 requisitos = json.loads(json_str)
-                print("✅ JSON parseado com sucesso")
+                print("JSON parseado com sucesso")
             except json.JSONDecodeError as e:
-                print(f"⚠️  JSON inicial inválido: {e}")
-                print(f"📝 JSON problemático (primeiros 300 chars): {json_str[:300]}...")
+                print(f"JSON inicial invalido: {e}")
+                print(f"JSON problematico (primeiros 300 chars): {json_str[:300]}...")
 
                 # Tentativa 1: Extrair apenas o bloco JSON entre { e }
                 try:
                     match = re.search(r'\{[\s\S]*\}', json_str)
                     if match:
                         requisitos = json.loads(match.group())
-                        print("✅ JSON corrigido via regex")
+                        print("JSON corrigido via regex")
                 except Exception as ex:
-                    print(f"⚠️  Tentativa 1 falhou: {ex}")
+                    print(f"Tentativa 1 falhou: {ex}")
 
                 # Tentativa 2: Tentar com yaml/json5 parsing mais leniente
                 if requisitos is None:
                     try:
                         import ast
                         requisitos = ast.literal_eval(json_str)
-                        print("✅ JSON corrigido via ast.literal_eval")
+                        print("JSON corrigido via ast.literal_eval")
                     except Exception as ex:
-                        print(f"⚠️  Tentativa 2 falhou: {ex}")
+                        print(f"Tentativa 2 falhou: {ex}")
 
                 # Tentativa 3: Tentar corrigir caracteres problemáticos
                 if requisitos is None:
                     try:
                         cleaned = re.sub(r'[\x00-\x1F\x7F]', '', json_str)
                         requisitos = json.loads(cleaned)
-                        print("✅ JSON corrigido removendo caracteres de controle")
+                        print("[OK] JSON corrigido removendo caracteres de controle")
                     except Exception as ex:
-                        print(f"⚠️  Tentativa 3 falhou: {ex}")
+                        print(f"[AVISO]  Tentativa 3 falhou: {ex}")
 
                 if requisitos is None:
-                    print("❌ Não foi possível corrigir JSON, usando fallback")
+                    print("[ERRO] No foi possvel corrigir JSON, usando fallback")
                     return self._design_fallback(comando)
 
             # Validar estrutura
             try:
                 requisitos = self._validar_requisitos(requisitos, comando)
-                print("✅ Requisitos validados")
+                print("[OK] Requisitos validados")
             except Exception as e:
-                print(f"⚠️  Erro na validação: {e}")
+                print(f"[AVISO]  Erro na validao: {e}")
                 import traceback
                 traceback.print_exc()
                 return self._design_fallback(comando)
 
             # Debug: mostrar cores que serão usadas
             try:
-                print(f"🎨 Cores finais escolhidas:")
+                print(f"Cores finais escolhidas:")
                 print(f"   Fundo: {requisitos['cores']['fundo']}")
-                print(f"   Título: {requisitos['cores']['titulo']}")
+                print(f"   Ttulo: {requisitos['cores']['titulo']}")
                 print(f"   Texto: {requisitos['cores']['texto']}")
                 print(f"   Acento: {requisitos['cores']['acento']}")
             except Exception as e:
-                print(f"⚠️  Erro ao mostrar cores: {e}")
+                print(f"[AVISO]  Erro ao mostrar cores: {e}")
 
             return requisitos
 
         except Exception as e:
-            print(f"❌ Erro na análise IA: {e}")
+            print(f"[ERRO] Erro na anlise IA: {e}")
             import traceback
             traceback.print_exc()
             return self._design_fallback(comando)
@@ -365,7 +403,7 @@ CÓDIGO PYTHON:"""
             return codigo
             
         except Exception as e:
-            print(f"⚠️  Erro na geração de código: {e}")
+            print(f"[AVISO]  Erro na gerao de cdigo: {e}")
             return self._codigo_fallback(design, nome_empresa, responsavel, resumo_dados, dados_mensais)
     
     async def _executar_codigo_gerado(
@@ -429,15 +467,15 @@ CÓDIGO PYTHON:"""
                 raise ValueError("Função gerar_apresentacao não encontrada no código")
                 
         except Exception as e:
-            print(f"❌ Erro ao executar código gerado: {e}")
+            print(f"Erro ao executar codigo gerado: {e}")
             import traceback
             traceback.print_exc()
-            print("🔄 Usando gerador fallback local...")
+            print("Usando gerador fallback local...")
             
             # Verificar se algum arquivo foi criado mesmo com erro
             arquivo_recente = self._encontrar_arquivo_recente(nome_empresa, tempo_limite_segundos=10)
             if arquivo_recente:
-                print(f"✅ Arquivo encontrado apesar do erro: {arquivo_recente}")
+                print(f"Arquivo encontrado apesar do erro: {arquivo_recente}")
                 return arquivo_recente
             
             # Se não encontrou, gerar com fallback
@@ -465,7 +503,7 @@ CÓDIGO PYTHON:"""
                 "stream": False,
                 "options": {
                     "temperature": 0.7,
-                    "num_predict": 2048
+                    "num_predict": 512
                 }
             }
             
@@ -481,7 +519,7 @@ CÓDIGO PYTHON:"""
             return data.get("response", "")
         
         except Exception as e:
-            print(f"❌ Erro ao chamar Ollama: {e}")
+            print(f"[ERRO] Erro ao chamar Ollama: {e}")
             raise
     
     def _extrair_json(self, texto: str) -> str:
@@ -1172,7 +1210,7 @@ def gerar_apresentacao():
     os.makedirs(os.path.dirname(caminho), exist_ok=True)
     
     prs.save(caminho)
-    print(f"✅ Apresentação salva em: {{caminho}}")
+    print(f"[OK] Apresentao salva em: {{caminho}}")
     return caminho
 
 if __name__ == "__main__":
@@ -1220,7 +1258,7 @@ if __name__ == "__main__":
             return None
             
         except Exception as e:
-            print(f"⚠️  Erro ao procurar arquivo: {e}")
+            print(f"[AVISO]  Erro ao procurar arquivo: {e}")
             return None
     
     def _gerar_fallback_local(
@@ -1232,7 +1270,7 @@ if __name__ == "__main__":
     ) -> str:
         """Gera apresentação usando código local quando IA falha"""
         
-        print("🎨 Usando gerador local com design:", design['nome_estilo'])
+        print("[DESIGN] Usando gerador local com design:", design['nome_estilo'])
         
         # Criar apresentação básica
         prs = Presentation()
@@ -1461,8 +1499,8 @@ async def gerar_apresentacao_ia(
     Returns:
         Caminho do arquivo PPTX gerado
     """
-    print(f"\n🤖 Analisando estilo: '{comando_estilo}'")
-    print(f"📊 Dados: {len(dados_mensais)} meses de {nome_empresa}")
+    print(f"\nAnalisando estilo: '{comando_estilo}'")
+    print(f"Dados: {len(dados_mensais)} meses de {nome_empresa}")
 
     # IA apenas escolhe o template e as cores (não gera código)
     gerador = GeradorIAInteligente(model=model)
@@ -1472,19 +1510,19 @@ async def gerar_apresentacao_ia(
 
     # Se cores personalizadas foram fornecidas, usar elas
     if cores_personalizadas:
-        print("🎨 Usando cores personalizadas fornecidas pelo usuário")
+        print("Usando cores personalizadas fornecidas pelo usurio")
         # Ainda usar IA para escolher o template, mas não para cores
         try:
             design = await gerador._analisar_requisitos(comando_estilo)
         except Exception as e:
-            print(f"⚠️  Erro ao analisar requisitos: {e}")
+            print(f"Erro ao analisar requisitos: {e}")
             design = gerador._design_fallback(comando_estilo)
     else:
         # Analisar comando para escolher template e cores
         try:
             design = await gerador._analisar_requisitos(comando_estilo)
         except Exception as e:
-            print(f"⚠️  Erro ao analisar requisitos: {e}")
+            print(f"Erro ao analisar requisitos: {e}")
             # Usar design fallback em caso de erro
             design = gerador._design_fallback(comando_estilo)
 
@@ -1509,9 +1547,9 @@ async def gerar_apresentacao_ia(
             'accent': RGBColor(*acento_rgb)  # Para header/footer
         }
 
-        print(f"🎨 Cores aplicadas: acento RGB({', '.join(map(str, acento_rgb))})")
+        print(f"[DESIGN] Cores aplicadas: acento RGB({', '.join(map(str, acento_rgb))})")
     else:
-        print("🎨 Cores personalizadas aplicadas")
+        print("[DESIGN] Cores personalizadas aplicadas")
 
     # Escolher template baseado nas preferências
     estilo = design.get("estilo", "").lower()
@@ -1559,7 +1597,7 @@ async def gerar_apresentacao_ia(
                 'destaque': RGBColor(220, 53, 69) if "vermelho" in str(cores_escolhidas) else RGBColor(212, 175, 55)
             }
 
-    print(f"🎨 Template escolhido: {template_nome}")
+    print(f"[DESIGN] Template escolhido: {template_nome}")
 
     # Criar apresentação usando template
     from pptx import Presentation
@@ -1575,7 +1613,7 @@ async def gerar_apresentacao_ia(
     os.makedirs(os.path.dirname(caminho), exist_ok=True)
     prs.save(caminho)
 
-    print(f"✅ Apresentação gerada: {caminho}")
+    print(f"[OK] Apresentao gerada: {caminho}")
     return caminho
 
 
@@ -1596,6 +1634,6 @@ if __name__ == "__main__":
             responsavel="Contador",
             comando_estilo="fundo azul marinho escuro com dourado elegante, estilo luxuoso"
         )
-        print(f"\n🎯 Resultado: {resultado}")
+        print(f"\n Resultado: {resultado}")
     
     asyncio.run(testar())
