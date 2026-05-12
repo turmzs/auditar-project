@@ -116,7 +116,7 @@ while (-not (Test-OllamaRunning)) {
 Write-Log "Ollama esta rodando!" "SUCCESS"
 
 # Baixar modelo
-$modelName = "llama3.2"
+$modelName = "tinyllama"
 Write-Log "Verificando modelo $modelName..."
 
 try {
@@ -126,8 +126,8 @@ try {
     if ($modelExists) {
         Write-Log "Modelo $modelName ja existe!" "SUCCESS"
     } else {
-        Write-Log "Baixando modelo $modelName (~2GB)..."
-        Write-Log "Isso pode levar 5-15 minutos dependendo da internet."
+        Write-Log "Baixando modelo $modelName (~600MB)..."
+        Write-Log "Isso pode levar alguns minutos dependendo da internet."
         Write-Log "A tela pode ficar parada, mas o download esta em andamento..."
         Write-Log "Por favor, NAO feche esta janela."
         Write-Log ""

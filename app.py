@@ -7,6 +7,7 @@ import os
 import sqlite3
 import json
 import asyncio
+import pandas as pd
 from datetime import datetime
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -46,7 +47,7 @@ def get_resource_path(relative_path):
 
 # Caminho da logo (já incluso automaticamente)
 LOGO_PATH = get_resource_path(os.path.join("assets", "logo_auditar.png"))
-print(f"📁 Logo carregada de: {LOGO_PATH}")
+print(f"Logo carregada de: {LOGO_PATH}")
 
 from assets.gerar_apresentacao_pdf_estilo import gerar_apresentacao_pptx_pdf
 from assets.slide_templates import OPCOES_CORES
@@ -262,6 +263,26 @@ class GeradorPPTXThread(QThread):
             self.finished.emit(True, filepath)
         except Exception as e:
             self.finished.emit(False, str(e))
+
+
+class AnalisadorIAFinanceiraThread(QThread):
+    finished = pyqtSignal(str)
+
+    def __init__(self, dados_mensais, nome_empresa):
+        super().__init__()
+        self.dados_mensais = dados_mensais
+        self.nome_empresa = nome_empresa
+
+    def run(self):
+        try:
+            ia = GeradorIAInteligente()
+            # Rodar async dentro da thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            diagnostico = loop.run_until_complete(ia.analisar_financas(self.dados_mensais, self.nome_empresa))
+            self.finished.emit(diagnostico)
+        except Exception as e:
+            self.finished.emit(f"Erro na análise: {str(e)}")
 
 
 class MainWindow(QMainWindow):
@@ -589,6 +610,17 @@ class MainWindow(QMainWindow):
         self.combo_ano_dash.currentIndexChanged.connect(self.atualizar_dashboard)
         self.combo_ano_dash.setEnabled(False)
         selecao_layout.addWidget(self.combo_ano_dash)
+
+        # Botões de Ação (Excel e IA)
+        self.btn_exportar_excel = QPushButton("📗 Exportar Excel")
+        self.btn_exportar_excel.setStyleSheet("background-color: #28a745; color: white; font-weight: bold; padding: 5px;")
+        self.btn_exportar_excel.clicked.connect(self.exportar_excel)
+        selecao_layout.addWidget(self.btn_exportar_excel)
+
+        self.btn_analise_ia = QPushButton("🤖 Consultoria IA")
+        self.btn_analise_ia.setStyleSheet("background-color: #6f42c1; color: white; font-weight: bold; padding: 5px;")
+        self.btn_analise_ia.clicked.connect(self.gerar_analise_ia_financeira)
+        selecao_layout.addWidget(self.btn_analise_ia)
 
         selecao_layout.addStretch()
         layout.addLayout(selecao_layout)
@@ -1363,6 +1395,132 @@ Detalhamento:
         if cor.isValid():
             self.cor_destaque = RGBColor(cor.red(), cor.green(), cor.blue())
             self.btn_cor_destaque.setStyleSheet(f"background-color: {cor.name()}; color: white; min-width: 100px;")
+
+    def exportar_excel(self):
+        """Exporta os dados filtrados no Dashboard para um arquivo Excel"""
+        empresa_id = self.combo_empresa_dash.currentData()
+        if not empresa_id:
+            QMessageBox.warning(self, "Aviso", "Selecione uma empresa primeiro.")
+            return
+
+        nome_empresa = self.combo_empresa_dash.currentText()
+        
+        # Buscar dados (mesma lógica do dashboard)
+        periodo = self.combo_periodo_dash.currentData()
+        query = "SELECT mes, ano, receita_bruta, custos, despesas, impostos, lucro_operacional FROM dados_mensais WHERE empresa_id = ?"
+        params = (empresa_id,)
+
+        if periodo == "trimestral":
+            query += " ORDER BY ano DESC, mes DESC LIMIT 3"
+        elif periodo == "anual":
+            query += " ORDER BY ano DESC, mes DESC LIMIT 12"
+        elif periodo == "personalizado":
+            ano_selecionado = self.combo_ano_dash.currentData()
+            if ano_selecionado:
+                query += " AND ano = ?"
+                params = (empresa_id, ano_selecionado)
+            query += " ORDER BY mes"
+        else:
+            query += " ORDER BY ano, mes"
+
+        dados = self.db.fetchall(query, params)
+        if not dados:
+            QMessageBox.warning(self, "Aviso", "Não há dados para exportar.")
+            return
+
+        try:
+            # Criar DataFrame
+            df = pd.DataFrame(dados, columns=["Mês", "Ano", "Receita Bruta", "Custos", "Despesas", "Impostos", "Lucro Operacional"])
+            
+            # Diálogo para salvar
+            filename, _ = QFileDialog.getSaveFileName(
+                self, "Salvar Relatório Excel", 
+                f"Relatorio_{nome_empresa.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                "Excel Files (*.xlsx)"
+            )
+
+            if filename:
+                df.to_excel(filename, index=False)
+                QMessageBox.information(self, "Sucesso", f"Relatório exportado com sucesso para:\n{filename}")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Falha ao exportar Excel: {str(e)}")
+
+    def gerar_analise_ia_financeira(self):
+        """Gera um diagnóstico financeiro usando IA baseada nos dados do dashboard"""
+        empresa_id = self.combo_empresa_dash.currentData()
+        if not empresa_id:
+            QMessageBox.warning(self, "Aviso", "Selecione uma empresa primeiro.")
+            return
+
+        if not IA_INTELIGENTE_DISPONIVEL:
+            QMessageBox.warning(self, "Aviso", "Funcionalidades de IA não estão disponíveis.")
+            return
+
+        # Buscar dados recentes
+        dados_raw = self.db.fetchall(
+            "SELECT mes, ano, receita_bruta, custos, despesas, impostos, lucro_operacional FROM dados_mensais WHERE empresa_id = ? ORDER BY ano DESC, mes DESC LIMIT 6",
+            (empresa_id,)
+        )
+        
+        if not dados_raw:
+            QMessageBox.warning(self, "Aviso", "Dados insuficientes para análise de IA.")
+            return
+
+        # Converter para lista de dicionários
+        dados_mensais = []
+        for d in dados_raw:
+            dados_mensais.append({
+                "mes": d[0], "ano": d[1], "receita_bruta": d[2],
+                "custos": d[3], "despesas": d[4], "impostos": d[5],
+                "lucro_operacional": d[6]
+            })
+
+        # Mostrar diálogo de progresso
+        self.dlg_progress_ia = QDialog(self)
+        self.dlg_progress_ia.setWindowTitle("Análise Inteligente")
+        self.dlg_progress_ia.setFixedSize(300, 100)
+        prog_layout = QVBoxLayout(self.dlg_progress_ia)
+        prog_layout.addWidget(QLabel("O consultor IA está analisando seus dados..."))
+        self.bar_ia = QProgressBar()
+        self.bar_ia.setRange(0, 0)
+        prog_layout.addWidget(self.bar_ia)
+        
+        # Iniciar thread
+        self.thread_ia = AnalisadorIAFinanceiraThread(dados_mensais, self.combo_empresa_dash.currentText())
+        self.thread_ia.finished.connect(self.analise_ia_concluida)
+        self.thread_ia.start()
+        
+        self.dlg_progress_ia.exec()
+
+    def analise_ia_concluida(self, diagnostico):
+        """Chamado quando a thread de IA termina"""
+        if hasattr(self, 'dlg_progress_ia'):
+            self.dlg_progress_ia.close()
+        
+        if not diagnostico or diagnostico.strip() == "":
+            diagnostico = "A IA não conseguiu gerar uma resposta. Verifique se o Ollama está funcionando corretamente."
+            
+        self.exibir_analise_ia(diagnostico)
+
+    def exibir_analise_ia(self, texto):
+        """Abre um diálogo para exibir o diagnóstico da IA"""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Diagnóstico Financeiro - Consultoria IA")
+        dlg.setMinimumSize(500, 400)
+        
+        layout = QVBoxLayout(dlg)
+        
+        txt = QTextEdit()
+        txt.setReadOnly(True)
+        txt.setPlainText(texto)
+        txt.setStyleSheet("background-color: #ffffff; color: #000000; font-size: 11pt; padding: 10px; border: 1px solid #dee2e6;")
+        layout.addWidget(txt)
+        
+        btn_close = QPushButton("Fechar")
+        btn_close.clicked.connect(dlg.accept)
+        layout.addWidget(btn_close)
+        
+        dlg.exec()
 
 def main():
     app = QApplication(sys.argv)

@@ -40,6 +40,7 @@ a = Analysis(
         'matplotlib.backends.backend_qt5agg',
         'mplcursors',
         'httpx',
+        'openpyxl',
     ],
     hookspath=[],
     hooksconfig={},
