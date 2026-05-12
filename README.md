@@ -2,7 +2,7 @@
 
 Sistema desktop completo para gestão contábil de empresas, com cálculo automático de impostos, geração de apresentações em PowerPoint e integração com Inteligência Artificial.
 
-**Versão**: 1.23.9
+**Versão**: 6.78.2
 
 ## 🎯 Funcionalidades Principais
 
@@ -80,7 +80,8 @@ Sistema desktop completo para gestão contábil de empresas, com cálculo autom�
 - Comandos em linguagem natural para definir estilo
 - Análise automática de cores e layout
 - Fallback automático caso a IA não esteja disponível
-- Modelos suportados: llama3.2, deepseek, e outros do Ollama
+- Modelos suportados: llama3.2, tinnyllama (mais recomendado por ser mais leve e mais rapido.)
+- Consultoria com a IA e com base nos dados semestrais da empresa.
 
 ### 6. Dashboard e Relatórios
 - Visualização de dados em tabela
@@ -91,6 +92,7 @@ Sistema desktop completo para gestão contábil de empresas, com cálculo autom�
 - Gráfico de Lucro Operacional (com cores dinâmicas: verde para lucro, vermelho para prejuízo)
 - Detalhamento completo dos cálculos de impostos
 - Exportação para PowerPoint
+- Relatório para excel.
 
 ## 🛠️ Funções Utilitárias
 
@@ -122,11 +124,13 @@ logo_path = get_resource_path(os.path.join("assets", "logo_auditar.png"))
    ↓
 7. gerar_relatorio() prepara dados
    ↓
-8. GeradorPPTXThread inicia em background
+8. Usuário gera arquivo excel.
    ↓
-9. Geração PPTX ou IA inteligente
+9. GeradorPPTXThread inicia em background
    ↓
-10. Arquivo salvo, mensagem de sucesso
+10. Geração PPTX ou IA inteligente
+   ↓
+11. Arquivo salvo, mensagem de sucesso
 ```
 
 ## 📁 Estrutura do Projeto
@@ -228,6 +232,7 @@ Cada tema inclui:
 ---
 
 ## 🚀 Como Usar
+Para não precisar instalar todas as dependências uma por uma, pode se usar o INSTALADOR específico que está no pacote disponibilizado.
 
 ### Instalação
 
@@ -311,42 +316,41 @@ As cores podem ser definidas manualmente ou via IA usando comandos como:
 
 ## 🤖 Integração com IA (Ollama)
 
-Para usar a funcionalidade de IA:
+A aplicação utiliza o **Ollama** para processamento de linguagem natural local, garantindo privacidade total dos dados.
 
-1. Instale o Ollama: https://ollama.ai
-2. Baixe um modelo (ex: `ollama pull llama3.2`)
-3. Inicie o Ollama: `ollama serve`
-4. A aplicação detectará automaticamente o Ollama
+1. **Instalação**: Baixe o Ollama em [ollama.ai](https://ollama.ai)
+2. **Modelo**: O sistema utiliza o **TinyLlama** (~600MB), ideal para rodar em qualquer máquina com rapidez e baixo consumo de RAM.
+3. **Funcionalidades**:
+   - **Estilo de Slides**: Comandos como "Fundo azul marinho com dourado" são interpretados para criar temas personalizados.
+   - **Consultoria Financeira**: O botão "Consultoria IA" no Dashboard gera um diagnóstico estratégico baseado nos últimos 6 meses de dados da empresa.
 
-Comandos de IA suportados:
-- Descrição de cores em linguagem natural
-- Escolha de template
-- Análise de estilo
+## 📊 Exemplos de Cálculo (Validados)
 
-## 📊 Exemplos de Cálculo
+O sistema segue rigorosamente a legislação vigente para os cálculos automáticos:
 
-### Simples Nacional
-- Receita: R$ 2.000,00 (Comércio)
-- Faixa 1: 4%
-- DAS: R$ 80,00
+### 1. Simples Nacional (com Fator R)
+Exemplo para empresa de serviços (Anexo III/V):
+- **Receita Mensal**: R$ 20.000,00
+- **Folha de Pagamento**: R$ 6.000,00 (Fator R = 30%)
+- **Resultado**: Enquadramento no **Anexo III** (6% de alíquota inicial)
+- **DAS**: R$ 1.200,00
+- *Nota: Se a folha fosse inferior a 28% da receita, o sistema aplicaria o Anexo V (15.5%).*
 
-### Lucro Presumido
-- Receita: R$ 1.734,00 (Serviços)
-- Base IRPJ: R$ 554,88 (32%)
-- IRPJ: R$ 83,23
-- CSLL: R$ 49,94
-- PIS: R$ 11,27
-- COFINS: R$ 52,02
-- Total: R$ 196,46
+### 2. Lucro Presumido (Mensal)
+Exemplo para prestadora de serviços (32% de presunção):
+- **Receita Mensal**: R$ 50.000,00
+- **IRPJ (15% sobre 32%)**: R$ 2.400,00
+- **CSLL (9% sobre 32%)**: R$ 1.440,00
+- **PIS/COFINS (3.65%)**: R$ 1.825,00
+- **Total Federal**: R$ 5.665,00
 
-### Lucro Real
-- Receita: R$ 10.000,00
-- Custos: R$ 6.000,00
-- Despesas: R$ 2.000,00
-- Lucro: R$ 2.000,00
-- IRPJ: R$ 300,00
-- CSLL: R$ 180,00
-- Total: R$ 480,00
+### 3. Lucro Real (com Adicional de IRPJ)
+Exemplo de lucro elevado no mês:
+- **Lucro Operacional**: R$ 100.000,00
+- **IRPJ Normal (15%)**: R$ 15.000,00
+- **Adicional IRPJ (10% sobre o excedente de R$ 20k)**: R$ 8.000,00
+- **CSLL (9%)**: R$ 9.000,00
+- **Total de Imposto sobre o Lucro**: R$ 32.000,00
 
 ## 🔧 Compilação
 
