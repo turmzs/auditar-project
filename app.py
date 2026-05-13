@@ -81,10 +81,15 @@ class DatabaseManager:
             )
         ''')
 
-        # Verificar e adicionar coluna regime_tributario se não existir (migração)
+        # Verificar e adicionar colunas se não existirem (migração)
+        cursor.execute("PRAGMA table_info(dados_mensais)")
+        colunas_dados = [col[1] for col in cursor.fetchall()]
+        if 'creditos_pis_cofins' not in colunas_dados:
+            cursor.execute("ALTER TABLE dados_mensais ADD COLUMN creditos_pis_cofins REAL DEFAULT 0")
+            
         cursor.execute("PRAGMA table_info(empresas)")
-        colunas = [col[1] for col in cursor.fetchall()]
-        if 'regime_tributario' not in colunas:
+        colunas_emp = [col[1] for col in cursor.fetchall()]
+        if 'regime_tributario' not in colunas_emp:
             cursor.execute("ALTER TABLE empresas ADD COLUMN regime_tributario TEXT DEFAULT 'simples'")
 
         cursor.execute('''
@@ -268,10 +273,11 @@ class GeradorPPTXThread(QThread):
 class AnalisadorIAFinanceiraThread(QThread):
     finished = pyqtSignal(str)
 
-    def __init__(self, dados_mensais, nome_empresa):
+    def __init__(self, dados_mensais, nome_empresa, comando_personalizado=""):
         super().__init__()
         self.dados_mensais = dados_mensais
         self.nome_empresa = nome_empresa
+        self.comando_personalizado = comando_personalizado
 
     def run(self):
         try:
@@ -279,7 +285,7 @@ class AnalisadorIAFinanceiraThread(QThread):
             # Rodar async dentro da thread
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            diagnostico = loop.run_until_complete(ia.analisar_financas(self.dados_mensais, self.nome_empresa))
+            diagnostico = loop.run_until_complete(ia.analisar_financas(self.dados_mensais, self.nome_empresa, self.comando_personalizado))
             self.finished.emit(diagnostico)
         except Exception as e:
             self.finished.emit(f"Erro na análise: {str(e)}")
@@ -315,6 +321,84 @@ class MainWindow(QMainWindow):
         titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(titulo)
         
+        # Aplicar estilo global Cinza Clássico / Limpo
+        self.setStyleSheet("""
+            QMainWindow, QWidget {
+                background-color: #f0f0f0;
+                color: #000000;
+                font-family: 'Segoe UI', Arial;
+            }
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #b0b0b0;
+                margin-top: 1.1em;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 3px 0 3px;
+            }
+            QLineEdit, QComboBox, QSpinBox, QTextEdit, QTableWidget {
+                background-color: #ffffff;
+                border: 1px solid #cccccc;
+                color: #000000;
+            }
+            QPushButton {
+                background-color: #e1e1e1;
+                border: 1px solid #adadad;
+                padding: 5px 15px;
+                min-height: 25px;
+            }
+            QPushButton:hover {
+                background-color: #e5f1fb;
+                border: 1px solid #0078d7;
+            }
+            QHeaderView::section {
+                background-color: #f0f0f0;
+                padding: 4px;
+                border: 1px solid #cccccc;
+            }
+            QTabWidget::pane {
+                border: 1px solid #cccccc;
+            }
+            QTabBar::tab {
+                background-color: #e1e1e1;
+                border: 1px solid #cccccc;
+                padding: 8px 15px;
+                margin-right: 2px;
+            }
+            QTabBar::tab:selected {
+                background-color: #ffffff;
+                border-bottom: none;
+            }
+            QRadioButton, QCheckBox {
+                spacing: 8px;
+                color: #000000;
+                font-size: 13px;
+            }
+            QRadioButton::indicator, QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border: 2px solid #555555;
+                background-color: #ffffff;
+            }
+            QRadioButton::indicator {
+                border-radius: 10px;
+            }
+            QCheckBox::indicator {
+                border-radius: 3px;
+            }
+            QRadioButton::indicator:checked {
+                background-color: #0078d7;
+                border: 2px solid #005a9e;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #0078d7;
+                border: 2px solid #005a9e;
+            }
+        """)
+
         # Abas
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs)
@@ -420,7 +504,6 @@ class MainWindow(QMainWindow):
         self.txt_custo_outros = QLineEdit("0")
         self.txt_custos_total = QLineEdit("0")
         self.txt_custos_total.setReadOnly(True)
-        self.txt_custos_total.setStyleSheet("background-color: #E8E8E8; color: #000000;")
         
         # === DESPESAS DETALHADAS ===
         self.txt_despesa_agua_luz_tel = QLineEdit("0")
@@ -428,30 +511,26 @@ class MainWindow(QMainWindow):
         self.txt_despesa_outros = QLineEdit("0")
         self.txt_despesas_total = QLineEdit("0")
         self.txt_despesas_total.setReadOnly(True)
-        self.txt_despesas_total.setStyleSheet("background-color: #E8E8E8; color: #000000;")
         
         # === IMPOSTOS E LUCRO ===
+        self.txt_creditos = QLineEdit("0")
         self.txt_impostos = QLineEdit("0")
         self.txt_impostos.setReadOnly(True)
-        self.txt_impostos.setStyleSheet("background-color: #FFF3CD; color: #856404; font-weight: bold;")
         self.txt_lucro = QLineEdit("0")
         self.txt_lucro.setReadOnly(True)
-        self.txt_lucro.setStyleSheet("background-color: #D4EDDA; color: #155724; font-weight: bold;")
 
         # Botão para calcular impostos automaticamente
-        self.btn_calcular_impostos = QPushButton("🧮 Calcular Impostos (Auto)")
+        self.btn_calcular_impostos = QPushButton(" Calcular Impostos (Auto)")
         self.btn_calcular_impostos.clicked.connect(self.calcular_impostos_automatico)
         
         # Conectar sinais para calcular automaticamente
-        campos_custos = [self.txt_custo_salarios, self.txt_custo_aluguel, self.txt_custo_outros]
-        campos_despesas = [self.txt_despesa_agua_luz_tel, self.txt_despesa_material, self.txt_despesa_outros]
+        campos_calculo = [
+            self.txt_receita, self.txt_custo_salarios, self.txt_custo_aluguel, 
+            self.txt_custo_outros, self.txt_despesa_agua_luz_tel, 
+            self.txt_despesa_material, self.txt_despesa_outros, self.txt_creditos
+        ]
         
-        for campo in campos_custos:
-            campo.textChanged.connect(self.calcular_totais)
-        for campo in campos_despesas:
-            campo.textChanged.connect(self.calcular_totais)
-        
-        for campo in [self.txt_receita, self.txt_impostos]:
+        for campo in campos_calculo:
             campo.textChanged.connect(self.calcular_totais)
         
         # === LAYOUT DO FORMULÁRIO ===
@@ -460,12 +539,12 @@ class MainWindow(QMainWindow):
         form.addRow("", QLabel(""))  # Espaço
         
         # Receita
-        form.addRow(QLabel("📥 RECEITA:"))
+        form.addRow(QLabel(" RECEITA:"))
         form.addRow("  Receita Bruta:", self.txt_receita)
         form.addRow("", QLabel(""))  # Espaço
         
         # Custos Detalhados
-        form.addRow(QLabel("💼 CUSTOS (Detalhados):"))
+        form.addRow(QLabel(" CUSTOS (Detalhados):"))
         form.addRow("  Salarios:", self.txt_custo_salarios)
         form.addRow("  Aluguel:", self.txt_custo_aluguel)
         form.addRow("  Outros Custos:", self.txt_custo_outros)
@@ -473,7 +552,7 @@ class MainWindow(QMainWindow):
         form.addRow("", QLabel(""))  # Espaço
         
         # Despesas Detalhadas
-        form.addRow(QLabel("📋 DESPESAS (Detalhadas):"))
+        form.addRow(QLabel(" DESPESAS (Detalhadas):"))
         form.addRow("  Agua/Luz/Telefone:", self.txt_despesa_agua_luz_tel)
         form.addRow("  Material/Escritorio:", self.txt_despesa_material)
         form.addRow("  Outras Despesas:", self.txt_despesa_outros)
@@ -481,8 +560,9 @@ class MainWindow(QMainWindow):
         form.addRow("", QLabel(""))  # Espaço
         
         # Impostos e Lucro
-        form.addRow(QLabel("💰 TRIBUTOS E RESULTADO:"))
-        form.addRow("  Impostos:", self.txt_impostos)
+        form.addRow(QLabel(" TRIBUTOS E RESULTADO:"))
+        form.addRow("  Créditos PIS/COFINS (Lucro Real):", self.txt_creditos)
+        form.addRow("  Impostos Estimados:", self.txt_impostos)
         form.addRow("  LUCRO OPERACIONAL:", self.txt_lucro)
         form.addRow("", self.btn_calcular_impostos)
         
@@ -562,7 +642,6 @@ class MainWindow(QMainWindow):
 
         # Botão calcular
         btn_calcular_trimestral = QPushButton("Calcular Impostos Trimestrais")
-        btn_calcular_trimestral.setStyleSheet("background-color: #007bff; color: white; font-weight: bold; padding: 10px;")
         btn_calcular_trimestral.clicked.connect(self.calcular_impostos_trimestral)
         trimestral_layout.addWidget(btn_calcular_trimestral)
 
@@ -575,6 +654,40 @@ class MainWindow(QMainWindow):
         self.lbl_resultados_trimestral = QLabel()
         self.lbl_resultados_trimestral.setStyleSheet("font-family: Consolas, monospace; font-size: 11px;")
         resultados_trimestral_layout.addWidget(self.lbl_resultados_trimestral)
+
+        # === GRUPO LUCRO REAL TRIMESTRAL ===
+        self.grupo_trimestral_real = QGroupBox("📊 Cálculo Trimestral - Lucro Real")
+        self.grupo_trimestral_real.setVisible(False)
+        scroll_layout.addWidget(self.grupo_trimestral_real)
+        
+        layout_real = QVBoxLayout(self.grupo_trimestral_real)
+        grid_real = QGridLayout()
+        layout_real.addLayout(grid_real)
+        
+        # Cabeçalhos
+        grid_real.addWidget(QLabel("Mês"), 0, 0)
+        grid_real.addWidget(QLabel("Receita (R$)"), 0, 1)
+        grid_real.addWidget(QLabel("Custos (R$)"), 0, 2)
+        grid_real.addWidget(QLabel("Despesas (R$)"), 0, 3)
+        grid_real.addWidget(QLabel("Créditos* (R$)"), 0, 4)
+        
+        self.real_inputs = []
+        for i in range(1, 4):
+            grid_real.addWidget(QLabel(f"Mês {i}:"), i, 0)
+            rec = QLineEdit("0"); grid_real.addWidget(rec, i, 1)
+            cus = QLineEdit("0"); grid_real.addWidget(cus, i, 2)
+            des = QLineEdit("0"); grid_real.addWidget(des, i, 3)
+            cre = QLineEdit("0"); grid_real.addWidget(cre, i, 4)
+            self.real_inputs.append({'rec': rec, 'cus': cus, 'des': des, 'cre': cre})
+            
+        btn_calc_real = QPushButton("Calcular Fechamento Trimestral (Real)")
+        btn_calc_real.clicked.connect(self.calcular_lucro_real_trimestral_action)
+        layout_real.addWidget(btn_calc_real)
+        
+        self.lbl_resultados_real = QLabel()
+        self.lbl_resultados_real.setStyleSheet("font-family: Consolas, monospace; font-size: 11px;")
+        layout_real.addWidget(self.lbl_resultados_real)
+        layout_real.addWidget(QLabel("* Créditos de PIS/COFINS (compras, energia, aluguel PJ, etc.)"))
 
         # Conectar mudança de empresa para verificar regime
         self.combo_empresa_dados.currentIndexChanged.connect(self.verificar_regime_para_trimestral)
@@ -612,13 +725,13 @@ class MainWindow(QMainWindow):
         selecao_layout.addWidget(self.combo_ano_dash)
 
         # Botões de Ação (Excel e IA)
-        self.btn_exportar_excel = QPushButton("📗 Exportar Excel")
-        self.btn_exportar_excel.setStyleSheet("background-color: #28a745; color: white; font-weight: bold; padding: 5px;")
+        self.btn_exportar_excel = QPushButton("Exportar Excel")
+        self.btn_exportar_excel.setStyleSheet("background-color: #ffffff; color: black; font-weight: bold; padding: 5px;")
         self.btn_exportar_excel.clicked.connect(self.exportar_excel)
         selecao_layout.addWidget(self.btn_exportar_excel)
 
-        self.btn_analise_ia = QPushButton("🤖 Consultoria IA")
-        self.btn_analise_ia.setStyleSheet("background-color: #6f42c1; color: white; font-weight: bold; padding: 5px;")
+        self.btn_analise_ia = QPushButton("Consultoria IA")
+        self.btn_analise_ia.setStyleSheet("background-color: #ffffff; color: black; font-weight: bold; padding: 5px;")
         self.btn_analise_ia.clicked.connect(self.gerar_analise_ia_financeira)
         selecao_layout.addWidget(self.btn_analise_ia)
 
@@ -779,10 +892,11 @@ class MainWindow(QMainWindow):
         self.canvas.draw()
 
     def verificar_regime_para_trimestral(self):
-        """Verifica se a empresa selecionada é Lucro Presumido e mostra/oculta o cálculo trimestral"""
+        """Verifica o regime da empresa e mostra o painel trimestral correto"""
         empresa_id = self.combo_empresa_dados.currentData()
         if not empresa_id:
             self.grupo_trimestral.setVisible(False)
+            self.grupo_trimestral_real.setVisible(False)
             return
 
         empresa = self.db.fetchone(
@@ -790,10 +904,13 @@ class MainWindow(QMainWindow):
             (empresa_id,)
         )
 
-        if empresa and empresa[0] == 'presumido':
-            self.grupo_trimestral.setVisible(True)
+        if empresa:
+            regime = empresa[0]
+            self.grupo_trimestral.setVisible(regime == 'presumido')
+            self.grupo_trimestral_real.setVisible(regime == 'real')
         else:
             self.grupo_trimestral.setVisible(False)
+            self.grupo_trimestral_real.setVisible(False)
 
     def calcular_impostos_trimestral(self):
         """Calcula os impostos trimestrais do Lucro Presumido"""
@@ -861,6 +978,51 @@ ICMS (estadual):                 R$ {resultado['icms_total']:,.2f}
 
         except ValueError:
             QMessageBox.warning(self, "Erro", "Digite valores numéricos válidos para as receitas.")
+
+    def calcular_lucro_real_trimestral_action(self):
+        """Ação para calcular o lucro real trimestral a partir dos inputs da interface"""
+        try:
+            dados_trimestre = []
+            for row in self.real_inputs:
+                dados_trimestre.append({
+                    'receita': float(row['rec'].text().replace(',', '.') or 0),
+                    'custos': float(row['cus'].text().replace(',', '.') or 0),
+                    'despesas': float(row['des'].text().replace(',', '.') or 0),
+                    'creditos': float(row['cre'].text().replace(',', '.') or 0)
+                })
+            
+            calc = CalculadoraImpostos()
+            res = calc.calcular_lucro_real_trimestral(dados_trimestre)
+            
+            texto = f"""
+═══════════════════════════════════════════════════════════
+  FECHAMENTO TRIMESTRAL - LUCRO REAL
+═══════════════════════════════════════════════════════════
+
+Receita Bruta Total:           R$ {res['receita_total']:,.2f}
+(-) Custos e Despesas:         R$ {res['custos_total'] + res['despesas_total']:,.2f}
+───────────────────────────────────────────────────────────
+LUCRO REAL DO TRIMESTRE:       R$ {res['lucro_trimestral']:,.2f}
+───────────────────────────────────────────────────────────
+
+IMPOSTOS SOBRE O LUCRO (IRPJ/CSLL)
+IRPJ Normal (15%):             R$ {res['irpj_normal']:,.2f}
+IRPJ Adicional (10% s/ 60k):   R$ {res['irpj_adicional']:,.2f}
+CSLL (9%):                     R$ {res['csll_total']:,.2f}
+
+IMPOSTOS SOBRE FATURAMENTO (PIS/COFINS)
+PIS (1,65% liq.):              R$ {res['pis_total']:,.2f}
+COFINS (7,6% liq.):            R$ {res['cofins_total']:,.2f}
+
+───────────────────────────────────────────────────────────
+✅ TOTAL TRIMESTRAL:            R$ {res['total_impostos_trimestral']:,.2f}
+💡 Média Mensal:                R$ {res['media_mensal_impostos']:,.2f}
+═══════════════════════════════════════════════════════════
+            """
+            self.lbl_resultados_real.setText(texto)
+            
+        except ValueError:
+            QMessageBox.warning(self, "Erro", "Digite valores numéricos válidos.")
 
     def criar_aba_relatorios(self):
         page = QWidget()
@@ -1116,14 +1278,18 @@ Regime: {resultado['regime']}
 Detalhamento:
 """
             if regime == 'simples':
-                detalhes += f"Faixa: {resultado['faixa']}\n"
-                detalhes += f"Alíquota Nominal: {resultado['aliquota_nominal']:.1f}%\n"
-                detalhes += f"Parcela a Deduzir (mensal): R$ {resultado['parcela_deduzir_mensal']:.2f}\n"
-                detalhes += f"DAS: R$ {resultado['das']:.2f}\n"
+                detalhes += f"Anexo: {resultado['anexo']} | Faixa: {resultado['faixa']}\n"
+                detalhes += f"RBT12 (Faturamento 12m):   R$ {resultado['faturamento_anual']:,.2f}\n"
+                detalhes += f"Alíquota Nominal:           {resultado['aliquota_nominal']:.2f}%\n"
+                detalhes += f"Parcela a Deduzir (anual):  R$ {resultado['parcela_deduzir_anual']:,.2f}\n"
+                detalhes += f"─────────────────────────────────────\n"
+                detalhes += f"Alíquota Efetiva:           {resultado['aliquota_efetiva']:.2f}%\n"
+                detalhes += f"─────────────────────────────────────\n"
+                detalhes += f"DAS (Guia Mensal):          R$ {resultado['das']:,.2f}\n"
                 if resultado['iss'] > 0:
-                    detalhes += f"ISS (estimado): R$ {resultado['iss']:.2f}\n"
+                    detalhes += f"  ISS (incluso no DAS):    R$ {resultado['iss']:,.2f}\n"
                 if resultado['icms'] > 0:
-                    detalhes += f"ICMS (estimado): R$ {resultado['icms']:.2f}\n"
+                    detalhes += f"  ICMS (incluso no DAS):   R$ {resultado['icms']:,.2f}\n"
                 # Preencher campo de impostos para Simples
                 self.txt_impostos.setText(f"{resultado['total_impostos']:.2f}")
             elif regime == 'presumido':
@@ -1142,17 +1308,23 @@ Detalhamento:
                 # Preencher campo de impostos para Presumido
                 self.txt_impostos.setText(f"{resultado['total_impostos']:.2f}")
             elif regime == 'real':
+                # Pegar créditos informados
+                try:
+                    creditos_v = float(self.txt_creditos.text().replace(',', '.') or 0)
+                except ValueError:
+                    creditos_v = 0
+
                 # Usar cálculo profissional para Lucro Real
                 calc_prof = CalculoProfissional(self.db)
                 resultado_prof = calc_prof.calcular_lucro_real_profissional(
                     empresa_id=empresa_id,
-                    mes=datetime.now().month,
-                    ano=datetime.now().year,
+                    mes=self.spin_mes.value(),
+                    ano=self.spin_ano.value(),
                     receita_bruta=receita,
                     custos=custos,
                     despesas=despesas,
-                    creditos_pis=0,  # Pode ser expandido para ler de campos futuros
-                    creditos_cofins=0,
+                    creditos_pis=creditos_v, 
+                    creditos_cofins=creditos_v, # No simplificado usamos o mesmo valor base
                     icms_saida=(receita / 1.12) * 0.12,
                     icms_entrada=0,
                     prejuizo_a_compensar=0,
@@ -1226,6 +1398,7 @@ Detalhamento:
             
             impostos = float(self.txt_impostos.text() or 0)
             lucro = float(self.txt_lucro.text() or 0)
+            creditos = float(self.txt_creditos.text() or 0)
         except ValueError:
             QMessageBox.warning(self, "Erro", "Valores numericos invalidos")
             return
@@ -1236,15 +1409,15 @@ Detalhamento:
                 receita_bruta, 
                 custo_salarios, custo_aluguel, custo_outros,
                 despesa_agua_luz_tel, despesa_material, despesa_outros,
-                custos, despesas, impostos, lucro_operacional
+                custos, despesas, impostos, lucro_operacional, creditos_pis_cofins
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             empresa_id, self.spin_mes.value(), self.spin_ano.value(),
             receita,
             custo_salarios, custo_aluguel, custo_outros,
             despesa_agua_luz_tel, despesa_material, despesa_outros,
-            custos, despesas, impostos, lucro
+            custos, despesas, impostos, lucro, creditos
         ))
         
         self.atualizar_tabela_dados(empresa_id)
@@ -1261,6 +1434,8 @@ Detalhamento:
         self.txt_despesa_material.setText("0")
         self.txt_despesa_outros.setText("0")
         self.txt_impostos.setText("0")
+        self.txt_lucro.setText("0")
+        self.txt_creditos.setText("0")
         self.calcular_totais()
 
     def atualizar_tabela_dados(self, empresa_id):
@@ -1475,6 +1650,20 @@ Detalhamento:
                 "lucro_operacional": d[6]
             })
 
+        # Perguntar o que a IA deve fazer (comando personalizado)
+        from PyQt6.QtWidgets import QInputDialog
+        
+        default_prompt = "forneça um diagnóstico estratégico curto, identifique 1 tendência clara e dê 2 sugestões estratégicas."
+        
+        comando, ok = QInputDialog.getMultiLineText(
+            self, "Consultoria IA", 
+            "O que a IA deve fazer? (Deixe como está para o padrão)",
+            default_prompt
+        )
+        
+        if not ok:
+            return
+
         # Mostrar diálogo de progresso
         self.dlg_progress_ia = QDialog(self)
         self.dlg_progress_ia.setWindowTitle("Análise Inteligente")
@@ -1485,8 +1674,9 @@ Detalhamento:
         self.bar_ia.setRange(0, 0)
         prog_layout.addWidget(self.bar_ia)
         
-        # Iniciar thread
-        self.thread_ia = AnalisadorIAFinanceiraThread(dados_mensais, self.combo_empresa_dash.currentText())
+        # Iniciar thread com o comando personalizado
+        comando_final = comando if comando != default_prompt else ""
+        self.thread_ia = AnalisadorIAFinanceiraThread(dados_mensais, self.combo_empresa_dash.currentText(), comando_final)
         self.thread_ia.finished.connect(self.analise_ia_concluida)
         self.thread_ia.start()
         
@@ -1503,22 +1693,30 @@ Detalhamento:
         self.exibir_analise_ia(diagnostico)
 
     def exibir_analise_ia(self, texto):
-        """Abre um diálogo para exibir o diagnóstico da IA"""
+        """Abre um diálogo para exibir o diagnóstico da IA no estilo clássico"""
         dlg = QDialog(self)
-        dlg.setWindowTitle("Diagnóstico Financeiro - Consultoria IA")
-        dlg.setMinimumSize(500, 400)
+        dlg.setWindowTitle("Relatório de Consultoria IA")
+        dlg.setMinimumSize(600, 500)
         
         layout = QVBoxLayout(dlg)
+        
+        # Grupo de Resultado (Estilo Clássico)
+        group = QGroupBox("Diagnóstico Estratégico")
+        group_layout = QVBoxLayout(group)
         
         txt = QTextEdit()
         txt.setReadOnly(True)
         txt.setPlainText(texto)
-        txt.setStyleSheet("background-color: #ffffff; color: #000000; font-size: 11pt; padding: 10px; border: 1px solid #dee2e6;")
-        layout.addWidget(txt)
+        group_layout.addWidget(txt)
         
+        layout.addWidget(group)
+        
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
         btn_close = QPushButton("Fechar")
         btn_close.clicked.connect(dlg.accept)
-        layout.addWidget(btn_close)
+        btn_layout.addWidget(btn_close)
+        layout.addLayout(btn_layout)
         
         dlg.exec()
 

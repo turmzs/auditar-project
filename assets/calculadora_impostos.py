@@ -91,37 +91,44 @@ class CalculadoraImpostos:
             faixa_encontrada = list(tabela.values())[-1]
             num_faixa = list(tabela.keys())[-1]
 
-        # Calcular o DAS Mensal com a fórmula correta
+        # === FÓRMULA OFICIAL DA RECEITA FEDERAL ===
+        # Alíquota Efetiva = (RBT12 × Alíquota Nominal - Parcela a Deduzir) / RBT12
+        # DAS Mensal = Receita do Mês × Alíquota Efetiva
         aliquota = faixa_encontrada['aliquota']
-        # Converte a parcela a deduzir ANUAL para mensal
-        parcela_deduzir_mensal = faixa_encontrada['parcela_deduzir'] / 12
+        parcela_deduzir = faixa_encontrada['parcela_deduzir']
 
-        valor_das = (receita_bruta * aliquota) - parcela_deduzir_mensal
+        # Calcula a alíquota efetiva correta sobre o RBT12
+        aliquota_efetiva = (faturamento_anual * aliquota - parcela_deduzir) / faturamento_anual
+        aliquota_efetiva = max(0, aliquota_efetiva)  # Nunca negativa
 
-        # Garante que o valor não seja negativo
-        valor_das = max(0, valor_das)
+        # DAS = receita do mês × alíquota efetiva
+        valor_das = receita_bruta * aliquota_efetiva
 
         # Detalhamento dos impostos incluídos no DAS
-        # Para comércio: ICMS está incluído, para serviços: ISS está incluído
         if tipo_atividade == 'comercio':
-            icms_estimado = valor_das * 0.4  # Aproximadamente 40% do DAS é ICMS
+            icms_estimado = valor_das * 0.34  # ~34% do DAS é ICMS no Anexo I
             iss = 0
         else:
-            iss = valor_das * 0.3  # Aproximadamente 30% do DAS é ISS
+            iss = valor_das * 0.33  # ~33% do DAS é ISS no Anexo III
             icms_estimado = 0
 
         return {
             'regime': 'Simples Nacional',
             'anexo': nome_anexo,
             'faixa': num_faixa,
+            'faturamento_anual': faturamento_anual,
             'aliquota_nominal': aliquota * 100,
-            'parcela_deduzir_anual': faixa_encontrada['parcela_deduzir'],
-            'parcela_deduzir_mensal': parcela_deduzir_mensal,
+            'aliquota_efetiva': aliquota_efetiva * 100,
+            'parcela_deduzir_anual': parcela_deduzir,
             'das': valor_das,
             'iss': iss,
             'icms': icms_estimado,
             'total_impostos': valor_das,
-            'descricao': f'Anexo {nome_anexo}, Faixa {num_faixa}: {aliquota * 100:.1f}%'
+            'descricao': (
+                f'Anexo {nome_anexo} | Faixa {num_faixa} | '
+                f'Alíq. Nominal: {aliquota * 100:.2f}% | '
+                f'Alíq. Efetiva: {aliquota_efetiva * 100:.2f}%'
+            )
         }
 
     @staticmethod
@@ -197,18 +204,10 @@ class CalculadoraImpostos:
         }
 
     @staticmethod
-    def calcular_lucro_real(receita_bruta, custos, despesas):
+    def calcular_lucro_real(receita_bruta, custos, despesas, creditos=0):
         """
         Calcula impostos pelo Lucro Real
         Baseado nas regras da Receita Federal
-
-        Args:
-            receita_bruta: Receita bruta mensal
-            custos: Total de custos operacionais
-            despesas: Total de despesas operacionais
-
-        Returns:
-            dict: Detalhamento dos impostos
         """
         # Calcular o lucro líquido (base de cálculo)
         lucro_liquido = receita_bruta - custos - despesas
@@ -216,30 +215,31 @@ class CalculadoraImpostos:
         # Se prejuízo, a base é zero para cálculo
         base_calculo = max(0, lucro_liquido)
 
-        # Calcular IRPJ: 15% sobre a base
+        # Calcular IRPJ: 15% sobre a base + adicional de 10% s/ excedente de 20k
         irpj = base_calculo * 0.15
-        # Adicional de 10% sobre o excedente de R$ 20.000 (mensal) na base de cálculo
         if base_calculo > 20000:
             irpj += (base_calculo - 20000) * 0.10
 
         # Calcular CSLL: 9% sobre a base
         csll = base_calculo * 0.09
 
-        # PIS: 1,65% sobre receita bruta (regime não-cumulativo - Lucro Real)
-        pis = receita_bruta * 0.0165
+        # PIS/COFINS Não-Cumulativo (1,65% e 7,6%)
+        pis_debito = receita_bruta * 0.0165
+        cofins_debito = receita_bruta * 0.076
+        
+        # Abatimento de créditos (simplificado sobre a mesma alíquota)
+        pis_credito = creditos * 0.0165
+        cofins_credito = creditos * 0.076
+        
+        pis_final = max(0, pis_debito - pis_credito)
+        cofins_final = max(0, cofins_debito - cofins_credito)
 
-        # COFINS: 7,6% sobre receita bruta (regime não-cumulativo - Lucro Real)
-        cofins = receita_bruta * 0.076
-
-        # ISS (média 3% para serviços) - informativo, não entra no total federal
+        # ISS/ICMS (Informativo)
         iss = receita_bruta * 0.03
-
-        # ICMS (média 12% para comércio - por dentro: divide por 1.12) - informativo
         icms = (receita_bruta / 1.12) * 0.12
 
-        # Separar impostos por tipo conforme sugestão profissional
         impostos_sobre_lucro = irpj + csll
-        impostos_sobre_faturamento = pis + cofins
+        impostos_sobre_faturamento = pis_final + cofins_final
         total_impostos = impostos_sobre_lucro + impostos_sobre_faturamento
 
         return {
@@ -248,15 +248,18 @@ class CalculadoraImpostos:
             'base_calculo': base_calculo,
             'irpj': irpj,
             'csll': csll,
-            'pis': pis,
-            'cofins': cofins,
-            'pis_cofins': pis + cofins,
+            'pis': pis_final,
+            'cofins': cofins_final,
+            'pis_debito': pis_debito,
+            'pis_credito': pis_credito,
+            'cofins_debito': cofins_debito,
+            'cofins_credito': cofins_credito,
             'iss': iss,
             'icms': icms,
             'impostos_sobre_lucro': impostos_sobre_lucro,
             'impostos_sobre_faturamento': impostos_sobre_faturamento,
             'total_impostos': total_impostos,
-            'descricao': f'Receita Bruta: R$ {lucro_liquido:,.2f} | Base Cálculo: R$ {base_calculo:,.2f}'
+            'descricao': f'Lucro: R$ {lucro_liquido:,.2f} | Créditos: R$ {creditos:,.2f}'
         }
 
     @staticmethod
@@ -331,6 +334,47 @@ class CalculadoraImpostos:
             'total_impostos_trimestral': round(total_impostos, 2),
             'media_mensal_impostos': round(total_impostos / 3, 2),
             'descricao': f'Presunção IRPJ: {pres["irpj"]*100:.0f}% | CSLL: {pres["csll"]*100:.0f}%'
+        }
+
+    @staticmethod
+    def calcular_lucro_real_trimestral(dados_trimestre):
+        """
+        Calcula impostos do Lucro Real para um trimestre consolidado.
+        """
+        receita_total = sum(d['receita'] for d in dados_trimestre)
+        custos_total = sum(d['custos'] for d in dados_trimestre)
+        despesas_total = sum(d['despesas'] for d in dados_trimestre)
+        creditos_total = sum(d['creditos'] for d in dados_trimestre)
+
+        lucro_antes_impostos = receita_total - custos_total - despesas_total
+        base_calculo = max(0, lucro_antes_impostos)
+
+        irpj_normal = base_calculo * 0.15
+        irpj_adicional = 0
+        if base_calculo > 60000:
+            irpj_adicional = (base_calculo - 60000) * 0.10
+        irpj_total = irpj_normal + irpj_adicional
+
+        csll_total = base_calculo * 0.09
+        pis_final = max(0, (receita_total - creditos_total) * 0.0165)
+        cofins_final = max(0, (receita_total - creditos_total) * 0.076)
+
+        total_federais = irpj_total + csll_total + pis_final + cofins_final
+
+        return {
+            'receita_total': receita_total,
+            'custos_total': custos_total,
+            'despesas_total': despesas_total,
+            'lucro_trimestral': lucro_antes_impostos,
+            'base_calculo': base_calculo,
+            'irpj_normal': irpj_normal,
+            'irpj_adicional': irpj_adicional,
+            'irpj_total': irpj_total,
+            'csll_total': csll_total,
+            'pis_total': pis_final,
+            'cofins_total': cofins_final,
+            'total_impostos_trimestral': total_federais,
+            'media_mensal_impostos': total_federais / 3
         }
 
     @staticmethod

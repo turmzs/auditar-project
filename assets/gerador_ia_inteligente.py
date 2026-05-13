@@ -29,7 +29,7 @@ class GeradorIAInteligente:
     def __init__(self, model: str = DEFAULT_MODEL):
         self.model = model
         self.ollama_available = self._check_ollama()
-        self.client = httpx.AsyncClient(timeout=120.0)
+        self.client = httpx.AsyncClient(timeout=300.0)
         
     def _check_ollama(self) -> bool:
         """Verifica se Ollama está rodando"""
@@ -85,106 +85,133 @@ class GeradorIAInteligente:
             requisitos_design
         )
         
-        print(f"Apresentacao gerada: {filepath}")
         return filepath
+
+    async def _call_ollama_chat(self, messages: List[Dict[str, str]]) -> str:
+        """Faz chamada à API de Chat do Ollama"""
+        try:
+            payload = {
+                "model": self.model,
+                "messages": messages,
+                "stream": False,
+                "options": {"temperature": 0.4, "num_predict": 2048, "num_ctx": 4096}
+            }
+            
+            response = await self.client.post(
+                f"{OLLAMA_HOST}/api/chat",
+                json=payload,
+                timeout=300.0
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data.get("message", {}).get("content", "")
+        except Exception as e:
+            print(f"[ERRO] Chat API: {type(e).__name__} - {e}")
+            raise
 
     async def analisar_financas(
         self,
         dados_mensais: List[Dict],
-        nome_empresa: str
+        nome_empresa: str,
+        comando_personalizado: str = ""
     ) -> str:
         """Analisa os dados financeiros e retorna um diagnóstico em texto"""
         
         if not self.ollama_available:
-            return "Ollama não disponível para análise. Verifique se o serviço está rodando."
+            return "Ollama não disponível. Verifique se o serviço está rodando."
 
         # Preparar dados para o prompt
         resumo = []
-        for d in dados_mensais[-6:]: # Últimos 6 meses
-            resumo.append(f"Mês {d['mes']}/{d['ano']}: Receita R$ {d['receita_bruta']:,.2f}, Custos R$ {d['custos']:,.2f}, Despesas R$ {d['despesas']:,.2f}, Lucro R$ {d['lucro_operacional']:,.2f}")
+        for d in dados_mensais[-6:]: 
+            resumo.append(f"Mês {d['mes']}/{d['ano']}: Receita R$ {d['receita_bruta']:,.2f}, Lucro R$ {d['lucro_operacional']:,.2f}")
         
         dados_texto = "\n".join(resumo)
         
-        prompt = f"""[SYSTEM]: Você é um consultor financeiro brasileiro. Responda APENAS em PORTUGUÊS DO BRASIL. Proibido usar espanhol ou inglês.
+        instrucao = f"Você é um consultor financeiro brasileiro. Analise estes dados da empresa {nome_empresa} e forneça um diagnóstico estratégico curto (máximo 2 parágrafos) com 1 tendência e 2 sugestões estratégicas."
+        instrucao += "\nNÃO explique o significado dos termos (ex: não explique o que é redução de custos), apenas dê as sugestões práticas."
+        if comando_personalizado:
+            instrucao += f"\nComando extra: {comando_personalizado}"
 
-[CONTEXTO]: Análise financeira da empresa {nome_empresa}.
-[DADOS]:
-{dados_texto}
-
-[TAREFA]: Escreva um diagnóstico financeiro curto:
-- Identifique 1 tendência clara.
-- Dê 2 sugestões estratégicas.
-- Use tom profissional.
-- Máximo 2 parágrafos.
-
-DIAGNÓSTICO EM PORTUGUÊS:"""
+        # Template rígido para TinyLlama
+        prompt_final = f"### Instruction:\n{instrucao}\n\nDADOS:\n{dados_texto}\n\n### Response:\n"
 
         try:
-            print(f"Analisando finanças de {nome_empresa}...")
-            analise = await self._call_ollama(prompt)
-            return analise.strip()
+            # Tentar Chat API primeiro (corrigida)
+            try:
+                print(f"Analisando {nome_empresa} via Chat API...")
+                messages = [{"role": "user", "content": prompt_final}]
+                analise = await self._call_ollama_chat(messages)
+            except:
+                print("Chat API falhou, usando Generate...")
+                analise = await self._call_ollama(prompt_final)
+            
+            if not analise:
+                return "Erro: IA retornou vazio."
+
+            resposta_limpa = analise.strip()
+            
+            # Filtro de prefixos e limpeza de identidade (AGRESSIVO)
+            padrões_remover = [
+                "Você é um", "Como consultor", "Sou um consultor",
+                "Ao analisar", "Diagnóstico:", "Resposta:", "### Response:",
+                "Com o CNPJ", "financeiro brasileiro", "analizei", "analisamos",
+                "esteos dações", "dações do grupo", "proporciona um diagnóstico",
+                "Comando extra:", "Comando adicional:", "DAO:", "DADOS:", "Significa identificar"
+            ]
+            
+            linhas = resposta_limpa.split('\n')
+            final_linhas = []
+            for i, linha in enumerate(linhas):
+                l_lower = linha.lower()
+                # Pula linhas de instrução ou definições inúteis nas primeiras linhas
+                if i < 5 and any(p.lower() in l_lower for p in padrões_remover):
+                    continue
+                final_linhas.append(linha)
+            
+            resposta_limpa = "\n".join(final_linhas).strip()
+
+            # Se ainda começar com algo estranho, buscar o primeiro ponto de dado real
+            for foco in ["A empresa", "Com base", "Observa-se", "Analisando", "1. ", "Tendência", "Sugestão"]:
+                pos = resposta_limpa.find(foco)
+                if 0 <= pos < 250: 
+                    resposta_limpa = resposta_limpa[pos:].strip()
+                    break
+
+            return resposta_limpa
+            
         except Exception as e:
-            return f"Erro ao gerar análise: {str(e)}"
+            print(f"[ERRO] Falha na análise: {e}")
+            return f"Erro na análise: {str(e)}"
     
     async def _analisar_requisitos(self, comando: str) -> Dict[str, Any]:
         """Usa IA para extrair requisitos de design do comando do usuário"""
 
         print(f"Iniciando analise de requisitos para: '{comando}'")
 
-        prompt = f"""Você é um designer especialista em apresentações corporativas.
-Analise o seguinte comando e extraia as especificações de design em formato JSON:
-
-COMANDO DO USUÁRIO: "{comando}"
-
-INSTRUÇÕES IMPORTANTES:
-- Se o comando mencionar "preto", "black" ou "texto preto", use RGB [0, 0, 0] para textos e títulos
-- Se o comando mencionar "branco", use RGB [255, 255, 255] para fundo
-- Use cores com alto contraste para legibilidade
-- Para fundo branco, use texto preto [0, 0, 0] ou cinza escuro [45, 45, 45]
-- Para fundo escuro, use texto branco [255, 255, 255]
-- NÃO use barras coloridas dentro dos cards de indicadores (slide 2)
-- NÃO use barras coloridas dentro dos cards de cenários (slide 4)
-- NÃO use barras coloridas dentro dos cards de recomendações (slide 5)
-- Cards devem ter fundo branco ou cinza claro, sem bordas coloridas
-
-Extraia:
-1. Nome/categoria do estilo
-2. Cores principais (fundo, títulos, textos, acentos) em RGB
-3. Tipografia (fontes para títulos e corpo)
-4. Estilo visual (moderno, clássico, minimalista, ousado, etc.)
-5. Elementos especiais (gradientes, sombras, bordas, ícones)
-6. Layout preferido (centrado, assimétrico, grade, etc.)
-
-Responda APENAS com JSON válido no formato:
-{{
-    "nome_estilo": "string",
-    "cores": {{
-        "fundo": [R, G, B],
-        "titulo": [R, G, B],
-        "texto": [R, G, B],
-        "acento": [R, G, B],
-        "destaque": [R, G, B]
-    }},
-    "fontes": {{
-        "titulo": "string",
-        "corpo": "string"
-    }},
-    "estilo_visual": "string",
-    "elementos_especiais": ["lista"],
-    "layout": "string",
-    "descricao": "breve descrição do visual"
-}}
-
-JSON:"""
-
         if not self.ollama_available:
             print("Ollama nao disponivel, usando fallback")
             return self._design_fallback(comando)
 
         try:
-            print("Chamando Ollama...")
-            response = await self._call_ollama(prompt)
+            print("Chamando Ollama (Chat API)...")
+            messages = [
+                {"role": "system", "content": "Voce e um designer. Responda APENAS o JSON com cores RGB baseadas no comando."},
+                {"role": "user", "content": f'Command: "{comando}". Fill this JSON with colors: {{"nome_estilo":"","cores":{{"fundo":[255,255,255],"titulo":[0,0,0],"texto":[0,0,0],"acento":[0,0,0],"destaque":[0,0,0]}},"fontes":{{"titulo":"Calibri","corpo":"Calibri"}},"estilo_visual":"","elementos_especiais":[],"layout":"","descricao":""}}'}
+            ]
+            response = await self._call_ollama_chat(messages)
             print(f"Resposta recebida (tamanho: {len(response)} chars)")
+
+            # Substituição manual de cores óbvias se a IA falhar (Camada Extra de Segurança)
+            cmd_l = comando.lower()
+            if "vermelho" in cmd_l or "red" in cmd_l:
+                response = response.replace("[0,0,0]", "[220,53,69]").replace("[0, 0, 0]", "[220,53,69]")
+            elif "azul" in cmd_l or "blue" in cmd_l:
+                response = response.replace("[0,0,0]", "[0,112,192]").replace("[0, 0, 0]", "[0,112,192]")
+            elif "verde" in cmd_l or "green" in cmd_l:
+                response = response.replace("[0,0,0]", "[40,167,69]").replace("[0, 0, 0]", "[40,167,69]")
+
+            # Limpar possiveis letras [R, G, B] que o modelo possa ter repetido
+            response = re.sub(r'[RGB]', '0', response)
 
             # Extrair JSON da resposta
             json_str = self._extrair_json(response)
@@ -193,62 +220,53 @@ JSON:"""
             # Tentar fazer parsing do JSON
             requisitos = None
             try:
-                requisitos = json.loads(json_str)
-                print("JSON parseado com sucesso")
-            except json.JSONDecodeError as e:
-                print(f"JSON inicial invalido: {e}")
-                print(f"JSON problematico (primeiros 300 chars): {json_str[:300]}...")
-
-                # Tentativa 1: Extrair apenas o bloco JSON entre { e }
+                # Definir a string de limpeza baseada no que foi extraido
+                json_str_clean = json_str
+                
+                # Limpeza bruta: transforma [[R,G,B], ...] em apenas [R,G,B]
+                # Pega o primeiro conjunto de 3 números dentro de colchetes aninhados
+                json_str_clean = re.sub(r'\[\s*\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\].*?\]', r'[\1, \2, \3]', json_str_clean)
+                # Remove colchetes triplos ou quádruplos se existirem
+                json_str_clean = json_str_clean.replace("[[[", "[").replace("]]]", "]")
+                json_str_clean = json_str_clean.replace("[[", "[").replace("]]", "]")
+                
                 try:
-                    match = re.search(r'\{[\s\S]*\}', json_str)
-                    if match:
-                        requisitos = json.loads(match.group())
-                        print("JSON corrigido via regex")
-                except Exception as ex:
-                    print(f"Tentativa 1 falhou: {ex}")
-
-                # Tentativa 2: Tentar com yaml/json5 parsing mais leniente
-                if requisitos is None:
+                    requisitos = json.loads(json_str_clean)
+                except:
+                    # Tentativa extra: ast.literal_eval (mais leniente com aspas simples)
                     try:
                         import ast
-                        requisitos = ast.literal_eval(json_str)
-                        print("JSON corrigido via ast.literal_eval")
-                    except Exception as ex:
-                        print(f"Tentativa 2 falhou: {ex}")
+                        requisitos = ast.literal_eval(json_str_clean)
+                        print("JSON recuperado via ast.literal_eval")
+                    except:
+                        # Tentar encontrar blocos de cores via regex se tudo falhar
+                        cores_encontradas = re.findall(r'\[(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\]', json_str)
+                    if len(cores_encontradas) >= 3:
+                        requisitos = self._design_fallback(comando)
+                        keys = ["fundo", "titulo", "texto", "acento", "destaque"]
+                        for i, cor in enumerate(cores_encontradas[:5]):
+                            requisitos["cores"][keys[i]] = [int(c) for c in cor]
+                
+                if requisitos:
+                    print("JSON extraido/recuperado com sucesso")
+            except Exception as e:
+                print(f"Erro no parsing inicial: {e}")
 
-                # Tentativa 3: Tentar corrigir caracteres problemáticos
-                if requisitos is None:
-                    try:
-                        cleaned = re.sub(r'[\x00-\x1F\x7F]', '', json_str)
-                        requisitos = json.loads(cleaned)
-                        print("[OK] JSON corrigido removendo caracteres de controle")
-                    except Exception as ex:
-                        print(f"[AVISO]  Tentativa 3 falhou: {ex}")
+            if requisitos is None:
+                print("[AVISO] Nao foi possivel extrair JSON, usando fallback inteligente")
+                return self._design_fallback(comando)
 
-                if requisitos is None:
-                    print("[ERRO] No foi possvel corrigir JSON, usando fallback")
-                    return self._design_fallback(comando)
-
-            # Validar estrutura
+            # Validar e corrigir chaves mal escritas (ex: "core" vs "cores")
+            if "core" in requisitos and "cores" not in requisitos:
+                requisitos["cores"] = requisitos.pop("core")
+            
+            # Validar estrutura final
             try:
                 requisitos = self._validar_requisitos(requisitos, comando)
                 print("[OK] Requisitos validados")
             except Exception as e:
-                print(f"[AVISO]  Erro na validao: {e}")
-                import traceback
-                traceback.print_exc()
+                print(f"[AVISO] Erro na validacao: {e}")
                 return self._design_fallback(comando)
-
-            # Debug: mostrar cores que serão usadas
-            try:
-                print(f"Cores finais escolhidas:")
-                print(f"   Fundo: {requisitos['cores']['fundo']}")
-                print(f"   Ttulo: {requisitos['cores']['titulo']}")
-                print(f"   Texto: {requisitos['cores']['texto']}")
-                print(f"   Acento: {requisitos['cores']['acento']}")
-            except Exception as e:
-                print(f"[AVISO]  Erro ao mostrar cores: {e}")
 
             return requisitos
 
@@ -391,7 +409,11 @@ CÓDIGO PYTHON:"""
             return self._codigo_fallback(design, nome_empresa, responsavel, resumo_dados, dados_mensais)
         
         try:
-            codigo = await self._call_ollama(prompt_codigo)
+            messages = [
+                {"role": "system", "content": "Voce e um programador Python expert em python-pptx. Gere APENAS codigo Python executavel, sem explicacoes."},
+                {"role": "user", "content": prompt_codigo}
+            ]
+            codigo = await self._call_ollama_chat(messages)
             
             # Limpar código (remover markdown se presente)
             codigo = self._limpar_codigo(codigo)
@@ -503,7 +525,8 @@ CÓDIGO PYTHON:"""
                 "stream": False,
                 "options": {
                     "temperature": 0.7,
-                    "num_predict": 512
+                    "num_predict": 2048,
+                    "num_ctx": 4096
                 }
             }
             
@@ -511,7 +534,7 @@ CÓDIGO PYTHON:"""
                 f"{OLLAMA_HOST}/api/generate",
                 json=payload,
                 headers={"Content-Type": "application/json"},
-                timeout=120.0
+                timeout=300.0
             )
             
             response.raise_for_status()
@@ -552,22 +575,22 @@ CÓDIGO PYTHON:"""
         json_str = re.sub(r'/\*.*?\*/', '', json_str, flags=re.DOTALL)
 
         # CORREÇÃO 2: Corrigir aspas simples em KEYS (padrão: 'key': -> "key":)
-        json_str = re.sub(r"'([^']+)':", r'"\1":', json_str)
+        json_str = re.sub(r"\'([^\']+)\'\s*:", r'"\1":', json_str)
 
-        # CORREÇÃO 3: Corrigir aspas simples em valores string (padrão: "key": 'value' -> "key": "value")
+        # CORREÇÃO 3: Corrigir chaves sem aspas (padrão: key: -> "key":)
+        json_str = re.sub(r'(\s+)(\w+):', r'\1"\2":', json_str)
+
+        # CORREÇÃO 4: Corrigir aspas simples em valores string (padrão: : 'value' -> : "value")
         json_str = re.sub(r':\s*\'([^\']+)\'', r': "\1"', json_str)
 
-        # CORREÇÃO 4: Remover trailing commas
+        # CORREÇÃO 5: Remover trailing commas
         json_str = re.sub(r',\s*}', '}', json_str)
         json_str = re.sub(r',\s*]', ']', json_str)
 
-        # CORREÇÃO 5: Corrigir valores Python para JSON
+        # CORREÇÃO 6: Corrigir valores Python para JSON
         json_str = re.sub(r'True', 'true', json_str)
         json_str = re.sub(r'False', 'false', json_str)
         json_str = re.sub(r'None', 'null', json_str)
-
-        # CORREÇÃO 6: Escapar quebras de linha em strings
-        json_str = re.sub(r'\n', r'\\n', json_str)
 
         # CORREÇÃO 7: Remover vírgulas duplicadas
         json_str = re.sub(r',\s*,', ',', json_str)
@@ -1526,28 +1549,58 @@ async def gerar_apresentacao_ia(
             # Usar design fallback em caso de erro
             design = gerador._design_fallback(comando_estilo)
 
-    # Mapear design para template
-    template_nome = "corporativo_escuro"  # Padrão
+    # Mapear design para template (Claro ou Escuro)
+    cmd_l = comando_estilo.lower()
+    is_claro = design["cores"]["fundo"] == [255, 255, 255] or "branco" in cmd_l or "claro" in cmd_l
+    is_escuro = "escuro" in cmd_l or "dark" in cmd_l or "preto" in cmd_l
+    
+    if is_escuro:
+        template_nome = "corporativo_escuro"
+        fundo_rgb = [33, 37, 41] # Cinza bem escuro profissional
+    elif is_claro:
+        template_nome = "corporativo_claro"
+        fundo_rgb = [255, 255, 255]
+    else:
+        template_nome = "corporativo_escuro" # Padrao
+        fundo_rgb = [33, 37, 41]
 
     # Se cores personalizadas não foram fornecidas, gerar com IA
     if not cores_personalizadas:
         # Extrair cores do design retornado (fallback ou IA)
         cores_design = design.get("cores", {})
-        acento_rgb = cores_design.get("acento", [212, 175, 55])  # Dourado padrão
+        acento_ia = cores_design.get("acento", [212, 175, 55])
+        
+        # Dicionário de cores para segurança (suporta quase todas as cores comuns)
+        mapa_cores = {
+            "vermelho": [200, 0, 0], "azul": [0, 80, 180], "verde": [34, 139, 34],
+            "amarelo": [255, 215, 0], "roxo": [128, 0, 128], "rosa": [255, 105, 180],
+            "laranja": [255, 140, 0], "cinza": [128, 128, 128], "preto": [0, 0, 0],
+            "branco": [255, 255, 255], "ciano": [0, 255, 255], "magenta": [255, 0, 255],
+            "marrom": [139, 69, 19], "dourado": [212, 175, 55], "prata": [192, 192, 192],
+            "flamengo": [200, 0, 0], "palmeiras": [0, 100, 0], "corinthians": [30, 30, 30],
+            "gremio": [0, 150, 255], "inter": [200, 0, 0], "cruzeiro": [0, 0, 200]
+        }
+        
+        cor_destaque = acento_ia
+        # Verificar se alguma cor do dicionário está no comando do usuário
+        for nome_cor, rgb in mapa_cores.items():
+            if nome_cor in cmd_l:
+                cor_destaque = rgb
+                break
 
-        # Criar cores personalizadas baseadas no design
+        # Criar cores personalizadas
         from pptx.dml.color import RGBColor
         cores_personalizadas = {
-            'primaria': RGBColor(*cores_design.get("primaria", [30, 58, 138])),
-            'secundaria': RGBColor(*cores_design.get("secundaria", acento_rgb)),
-            'fundo': RGBColor(*cores_design.get("fundo", [255, 255, 255])),
-            'texto': RGBColor(*cores_design.get("titulo", [33, 37, 41])),
-            'texto_secundario': RGBColor(*cores_design.get("texto", [108, 117, 125])),
-            'destaque': RGBColor(*cores_design.get("destaque", acento_rgb)),
-            'accent': RGBColor(*acento_rgb)  # Para header/footer
+            'primaria': RGBColor(*cor_destaque), 
+            'secundaria': RGBColor(*cor_destaque), 
+            'fundo': RGBColor(*fundo_rgb),       
+            'texto': RGBColor(255, 255, 255) if is_escuro else RGBColor(33, 37, 41),
+            'texto_secundario': RGBColor(200, 200, 200) if is_escuro else RGBColor(108, 117, 125),
+            'destaque': RGBColor(*cor_destaque),
+            'accent': RGBColor(*cor_destaque)
         }
 
-        print(f"[DESIGN] Cores aplicadas: acento RGB({', '.join(map(str, acento_rgb))})")
+        print(f"[DESIGN] Cores aplicadas: acento RGB({', '.join(map(str, cor_destaque))})")
     else:
         print("[DESIGN] Cores personalizadas aplicadas")
 
