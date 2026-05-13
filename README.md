@@ -2,7 +2,7 @@
 
 Sistema desktop completo para gestão contábil de empresas, com cálculo automático de impostos, geração de apresentações em PowerPoint e integração com Inteligência Artificial.
 
-**Versão**: 6.78.2
+**Versão**: 6.79.0 (Estável)
 
 ## 🎯 Funcionalidades Principais
 
@@ -74,14 +74,23 @@ Sistema desktop completo para gestão contábil de empresas, com cálculo autom�
 - **`gerar_relatorio()`** - Coleta dados da empresa e inicia thread de geração
 - **`atualizar_progresso(valor)`** - Callback que atualiza a barra de progresso
 - **`relatorio_gerado(sucesso, resultado)`** - Callback final que exibe resultado ou erro
+- **`gerar_demonstrativo_pdf_action()`** - Gera relatório contábil analítico tabular em PDF
 
-### 5. Inteligência Artificial (Ollama)
-- Geração de apresentações com IA local
-- Comandos em linguagem natural para definir estilo
-- Análise automática de cores e layout
-- Fallback automático caso a IA não esteja disponível
-- Modelos suportados: llama3.2, tinnyllama (mais recomendado por ser mais leve e mais rapido.)
-- Consultoria com a IA e com base nos dados semestrais da empresa.
+### 5. Relatórios Analíticos (PDF)
+- Geração de **Demonstrativo Analítico de Resultados** em formato PDF
+- Layout profissional estilo "extrato contábil" com cabeçalho completo e linhas zebradas
+- Colunas: Mês/Ano, Receita Bruta, Custos/Despesas, Impostos, Lucro Líquido e Margem %
+- Totalizadores automáticos no final do documento
+- Salvamento automático na Área de Trabalho do usuário
+
+### 6. Inteligência Artificial (Ollama)
+- Geração de apresentações com IA local via **Chat API**
+- **Extração Robusta**: Sistema de limpeza de JSON capaz de corrigir falhas de formatação de modelos pequenos
+- Comandos em linguagem natural para definir estilo (ex: "Fundo escuro e detalhes em laranja")
+- **Camada de Segurança**: Detecção automática de cores por palavras-chave caso a IA falhe
+- Modelo Recomendado: **TinyLlama** (ultra-leve e rápido, ideal para máquinas com 8GB RAM ou menos)
+- Modelo Avançado: **Llama 3.2** (para máquinas com GPU/VRAM dedicada)
+- Consultoria estratégica baseada no histórico financeiro da empresa
 
 ### 6. Dashboard e Relatórios
 - Visualização de dados em tabela
@@ -239,7 +248,7 @@ Para não precisar instalar todas as dependências uma por uma, pode se usar o I
 1. Clone o repositório
 2. Instale as dependências:
 ```bash
-pip install PyQt6 python-pptx matplotlib httpx
+pip install PyQt6 python-pptx matplotlib httpx fpdf2
 ```
 
 3. Execute a aplicação:
@@ -366,13 +375,18 @@ Para compilar o aplicativo em executável:
 - PyQt6
 - python-pptx
 - matplotlib
-- httpx
+- httpx (para comunicação com Ollama)
+- fpdf2 (para relatórios analíticos em PDF)
 - mplcursors (opcional, para tooltips interativos nos gráficos)
 - Ollama (opcional, para funcionalidades de IA)
 
-## ✨ O Que Há de Novo (v1.23.9)
+## ✨ O Que Há de Novo (v6.79.0)
 
-### Novas Funções Adicionadas
+### Novas Funções Adicionadas (v6.79.0)
+- **`gerar_relatorio_pdf()`** - Gerador técnico de PDF analítico com tabelas zebradas e cabeçalho formal
+- **`extrair_json_robusto()`** - Motor de parsing para tratar respostas imperfeitas de modelos locais (Ollama)
+- **Seleção Dinâmica de Template** - Alternância automática entre 'Claro' e 'Escuro' conforme o comando do usuário
+- **Dicionário de Cores Universal** - Suporte para dezenas de cores em português (Flamengo, Verde, Roxo, etc.)
 - **`calcular_totais()`** - Cálculo automático em tempo real de custos, despesas e lucro
 - **`limpar_campos_dados()`** - Limpeza automatizada de campos após lançamento de dados
 - **`atualizar_tabela_dados()`** - Atualização dinâmica da tabela de dados mensais
