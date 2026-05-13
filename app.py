@@ -51,6 +51,7 @@ print(f"Logo carregada de: {LOGO_PATH}")
 
 from assets.gerar_apresentacao_pdf_estilo import gerar_apresentacao_pptx_pdf
 from assets.slide_templates import OPCOES_CORES
+from assets.gerador_pdf import gerar_relatorio_pdf
 
 try:
     from assets.gerador_ia_inteligente import GeradorIAInteligente, gerar_apresentacao_ia
@@ -1126,12 +1127,19 @@ COFINS (7,6% liq.):            R$ {res['cofins_total']:,.2f}
         self.txt_comando_ia.setPlaceholderText("Ex: Elegante com fundo branco, titulos em dourado...")
         opcoes_layout.addWidget(self.txt_comando_ia)
         
-        # Botao gerar
-        layout.addSpacing(20)
+        # Botao gerar PPTX
+        layout.addSpacing(10)
         btn_gerar = QPushButton("GERAR APRESENTACAO PPTX")
         btn_gerar.setMinimumHeight(40)
         btn_gerar.clicked.connect(self.gerar_relatorio)
         layout.addWidget(btn_gerar)
+        
+        # Botao gerar PDF
+        btn_gerar_pdf = QPushButton("GERAR DEMONSTRATIVO PDF")
+        btn_gerar_pdf.setMinimumHeight(40)
+        btn_gerar_pdf.setStyleSheet("background-color: #f0f0f0; color: #333;")
+        btn_gerar_pdf.clicked.connect(self.gerar_demonstrativo_pdf_action)
+        layout.addWidget(btn_gerar_pdf)
         
         # Progresso
         self.progress_bar = QProgressBar()
@@ -1522,6 +1530,38 @@ Detalhamento:
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
         self.thread.start()
+
+    def gerar_demonstrativo_pdf_action(self):
+        """Ação ao clicar no botão de gerar PDF Analítico"""
+        empresa_id = self.combo_empresa_rel.currentData()
+        if not empresa_id:
+            QMessageBox.warning(self, "Aviso", "Selecione uma empresa")
+            return
+
+        empresa = self.db.fetchone("SELECT nome, cnpj FROM empresas WHERE id = ?", (empresa_id,))
+        dados = self.db.fetchall(
+            "SELECT mes, ano, receita_bruta, custos, despesas, impostos, lucro_operacional FROM dados_mensais WHERE empresa_id = ? ORDER BY ano, mes",
+            (empresa_id,)
+        )
+        
+        if not dados:
+            QMessageBox.warning(self, "Aviso", "Nenhum dado mensal cadastrado")
+            return
+            
+        dados_formatados = [
+            {
+                "mes": d[0], "ano": d[1], "receita_bruta": d[2],
+                "custos": d[3], "despesas": d[4], "impostos": d[5], "lucro_operacional": d[6]
+            }
+            for d in dados
+        ]
+        
+        try:
+            path = gerar_relatorio_pdf(dados_formatados, empresa[0], empresa[1] or "Não informado")
+            if path:
+                QMessageBox.information(self, "Sucesso", f"Demonstrativo PDF gerado com sucesso na Área de Trabalho:\n{path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Falha ao gerar PDF: {e}")
 
     def atualizar_progresso(self, valor):
         self.progress_bar.setValue(valor)
