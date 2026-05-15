@@ -41,6 +41,7 @@ a = Analysis(
         'mplcursors',
         'httpx',
         'openpyxl',
+        'fpdf',
     ],
     hookspath=[],
     hooksconfig={},

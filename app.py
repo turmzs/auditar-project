@@ -295,7 +295,7 @@ class AnalisadorIAFinanceiraThread(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Auditar Planejamento Tributário")
+        self.setWindowTitle("Auditar Planejamento Tributário - v6.79.0")
         self.setGeometry(100, 100, 900, 700)
 
         self.db = DatabaseManager()

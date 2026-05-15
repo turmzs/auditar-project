@@ -6,3 +6,4 @@ pyinstaller
 mplcursors
 pandas
 openpyxl
+fpdf2
