@@ -3,10 +3,9 @@ Templates pré-fabricados de slides - Código testado e funcional
 A IA escolhe o template e personaliza cores, mas não gera código do zero
 """
 
-from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
-from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+from pptx.enum.text import PP_ALIGN
 from pptx.enum.shapes import MSO_SHAPE
 import os
 import tempfile

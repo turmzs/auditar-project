@@ -5,26 +5,25 @@ AUDITAR CONTABILIDADE - Versão Padrão
 import sys
 import os
 import sqlite3
-import json
 import asyncio
 import pandas as pd
 from datetime import datetime
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QLineEdit, QComboBox, QTableWidget, QTableWidgetItem,
-    QTabWidget, QFrame, QFileDialog, QMessageBox, QProgressBar,
-    QDialog, QFormLayout, QSpinBox, QDoubleSpinBox, QTextEdit,
-    QGroupBox, QRadioButton, QButtonGroup, QGridLayout, QScrollArea,
-    QColorDialog, QPushButton,
+    QTabWidget, QFileDialog, QMessageBox, QProgressBar,
+    QDialog, QFormLayout, QSpinBox, QTextEdit,
+    QGroupBox, QRadioButton, QGridLayout, QScrollArea,
+    QColorDialog,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtGui import QFont
 from pptx.dml.color import RGBColor
 
 # Importar calculadora de impostos
 sys.path.append(os.path.join(os.path.dirname(__file__), 'assets'))
 from calculadora_impostos import CalculadoraImpostos
-from calculo_profissional import CalculoProfissional, salvar_resultado_calculo
+from calculo_profissional import CalculoProfissional
 
 # Adicionar paths
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -238,7 +237,7 @@ class GeradorPPTXThread(QThread):
                 cores_ia = None
                 if self.tema_cores == "personalizado":
                     cores_ia = self.cores_personalizadas
-                    print(f"🎨 Usando cores personalizadas com IA")
+                    print("🎨 Usando cores personalizadas com IA")
 
                 filepath = asyncio.run(gerar_apresentacao_ia(
                     dados_mensais=self.dados_mensais,
@@ -256,7 +255,7 @@ class GeradorPPTXThread(QThread):
                 if self.tema_cores == "personalizado":
                     # Usar cores personalizadas selecionadas pelo usuário
                     cores_personalizadas = self.cores_personalizadas
-                    print(f"🎨 Usando cores personalizadas")
+                    print("🎨 Usando cores personalizadas")
                 elif self.tema_cores and self.tema_cores in OPCOES_CORES:
                     # Usar tema pré-definido
                     _, cores_personalizadas = OPCOES_CORES[self.tema_cores]
@@ -750,13 +749,12 @@ class MainWindow(QMainWindow):
         try:
             from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
             from matplotlib.figure import Figure
-            import matplotlib.pyplot as plt
 
             self.figure = Figure(figsize=(12, 8))
             self.canvas = FigureCanvas(self.figure)
             graficos_layout.addWidget(self.canvas)
             self.matplotlib_disponivel = True
-        except ImportError as e:
+        except ImportError:
             # Matplotlib não está instalado
             self.lbl_sem_matplotlib = QLabel("Matplotlib não está instalado.\nPara usar o Dashboard, instale com: pip install matplotlib")
             self.lbl_sem_matplotlib.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1290,9 +1288,9 @@ Detalhamento:
                 detalhes += f"RBT12 (Faturamento 12m):   R$ {resultado['faturamento_anual']:,.2f}\n"
                 detalhes += f"Alíquota Nominal:           {resultado['aliquota_nominal']:.2f}%\n"
                 detalhes += f"Parcela a Deduzir (anual):  R$ {resultado['parcela_deduzir_anual']:,.2f}\n"
-                detalhes += f"─────────────────────────────────────\n"
+                detalhes += "─────────────────────────────────────\n"
                 detalhes += f"Alíquota Efetiva:           {resultado['aliquota_efetiva']:.2f}%\n"
-                detalhes += f"─────────────────────────────────────\n"
+                detalhes += "─────────────────────────────────────\n"
                 detalhes += f"DAS (Guia Mensal):          R$ {resultado['das']:,.2f}\n"
                 if resultado['iss'] > 0:
                     detalhes += f"  ISS (incluso no DAS):    R$ {resultado['iss']:,.2f}\n"
@@ -1343,7 +1341,7 @@ Detalhamento:
                 dre = calc_prof.gerar_dre(resultado_prof)
                 memoria = calc_prof.gerar_memoria_calculo(resultado_prof)
 
-                detalhes += f"═══ CÁLCULO PROFISSIONAL - LUCRO REAL ═══\n\n"
+                detalhes += "═══ CÁLCULO PROFISSIONAL - LUCRO REAL ═══\n\n"
                 detalhes += f"Lucro Real: R$ {resultado_prof.lucro_real:,.2f}\n\n"
                 detalhes += "─ IMPOSTOS SOBRE O LUCRO ─\n"
                 detalhes += f"  IRPJ (15% + adicional): R$ {resultado_prof.irpj:,.2f}\n"
@@ -1365,12 +1363,12 @@ Detalhamento:
                 # Atualizar resultado para mostrar total correto
                 resultado = {'total_impostos': resultado_prof.total_impostos}
 
-            detalhes += f"\n═══════════════════════════════════\n"
+            detalhes += "\n═══════════════════════════════════\n"
             if regime == 'real':
                 detalhes += f"TOTAL DE IMPOSTOS: R$ {resultado_prof.total_impostos:,.2f}\n"
             else:
                 detalhes += f"TOTAL DE IMPOSTOS: R$ {resultado['total_impostos']:,.2f}\n"
-            detalhes += f"═══════════════════════════════════"
+            detalhes += "═══════════════════════════════════"
 
             QMessageBox.information(self, "Cálculo de Impostos", detalhes)
 

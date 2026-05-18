@@ -4,8 +4,7 @@ Implementa memória de cálculo, créditos e DRE
 """
 
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional
-from datetime import datetime
+from typing import List, Dict
 import json
 
 

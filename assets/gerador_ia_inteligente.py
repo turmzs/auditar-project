@@ -8,14 +8,13 @@ import sys
 import json
 import re
 import httpx
-import subprocess
 import tempfile
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from datetime import datetime
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
-from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+from pptx.enum.text import PP_ALIGN
 from pptx.enum.shapes import MSO_SHAPE
 
 # Configurações
@@ -816,10 +815,6 @@ CÓDIGO PYTHON:"""
             primeiro = dados_mensais[0]
             ultimo = dados_mensais[-1]
             
-            receita_total = sum(d.get("receita_bruta", 0) for d in dados_mensais)
-            lucro_total = sum(d.get("lucro_operacional", 0) for d in dados_mensais)
-            margem = (lucro_total / receita_total * 100) if receita_total > 0 else 0
-            
             # Formatar mês/ano com tratamento de tipo
             def fmt_mes_ano(mes_val, ano_val, mes_default='01', ano_default='2024'):
                 try:
@@ -838,22 +833,8 @@ CÓDIGO PYTHON:"""
             if len(dados_mensais) > 1:
                 meses_str += f" a {fmt_mes_ano(ultimo.get('mes'), ultimo.get('ano'))}"
             
-            dados_resumo = {
-                "primeiro_mes": meses_str.split(" a ")[0] if " a " in meses_str else meses_str,
-                "ultimo_mes": meses_str.split(" a ")[1] if " a " in meses_str else meses_str,
-                "receita_total": f"R$ {receita_total:,.2f}",
-                "lucro_total": f"R$ {lucro_total:,.2f}",
-                "margem": f"{margem:.1f}%"
-            }
         else:
-            # Fallback para dados de exemplo
-            dados_resumo = {
-                "primeiro_mes": "Jan/2024",
-                "ultimo_mes": "Dez/2024",
-                "receita_total": "R$ 0,00",
-                "lucro_total": "R$ 0,00",
-                "margem": "0.0%"
-            }
+            pass
         
         # Preparar dados para tabela mensal
         linhas_tabela = []
@@ -1494,7 +1475,7 @@ if __name__ == "__main__":
 
 
 # Importar templates
-from slide_templates import TEMPLATES, aplicar_template
+from slide_templates import aplicar_template
 
 
 # Função de compatibilidade com o sistema existente - USA TEMPLATES PRÉ-FABRICADOS

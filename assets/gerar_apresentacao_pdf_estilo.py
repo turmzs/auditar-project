@@ -5,13 +5,11 @@ Cria slides PowerPoint parecidos com o design do PDF de exemplo
 
 import os
 import json
-import sys
 from datetime import datetime
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
-from pptx.enum.shapes import MSO_SHAPE
 
 # ============================================================
 # PALETA DE CORES - Estilo PDF com Dourado e Branco (Primárias)
@@ -37,7 +35,7 @@ COR_TEXTO_MUTED = CORES['COR_TEXTO_MUTED']
 
 def atualizar_cores(cores_personalizadas):
     """Atualiza as cores globais com base nas cores personalizadas"""
-    global CORES, COR_PRETO, COR_DOURADO, COR_BRANCO, COR_CINZA_ESC, COR_CINZA_MED, COR_TEXTO_MUTED
+    global COR_PRETO, COR_DOURADO, COR_BRANCO, COR_CINZA_ESC, COR_CINZA_MED, COR_TEXTO_MUTED
     
     if cores_personalizadas:
         # Mapear cores personalizadas para as constantes
@@ -294,75 +292,7 @@ def slide_cenarios_pdf(prs, dados_mensais, cenarios):
     # Footer dourado
     adicionar_retangulo(slide, 0, 5.2, 10, 0.1, COR_DOURADO)
 
-# ============================================================
-# SLIDE 4 - RECOMENDAÇÕES ESTILO PDF
-# ============================================================
-def slide_recomendacoes_pdf(prs, recomendacoes_ia, cenarios):
-    """Slide de recomendações no estilo PDF"""
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    adicionar_fundo(slide, COR_BRANCO)
-    
-    # Header dourado
-    adicionar_retangulo(slide, 0, 0, 10, 0.12, COR_DOURADO)
-    adicionar_texto(slide, "RECOMENDAÇÕES ESTRATÉGICAS", 0.3, 0.15, 9.4, 0.6,
-                    tamanho=24, cor=COR_BRANCO, bold=True, fonte="Arial")
-    
-    # Logo sobre o footer
-    adicionar_logo_auditar(slide)
-    
-    # Texto do footer (posicionado acima da barra)
-    adicionar_texto(slide, "🏢 AUDITAR - CONTABILIDADE CONSULTIVA 🏢", 0.3, 4.85, 9.4, 0.3,
-                    tamanho=10, cor=COR_DOURADO, bold=True, alinhamento=PP_ALIGN.CENTER)
-    
-    # Footer dourado
-    adicionar_retangulo(slide, 0, 5.2, 10, 0.1, COR_DOURADO)
-    
-    # Área de conteúdo
-    adicionar_retangulo(slide, 0.3, 0.8, 9.4, 3.8, COR_BRANCO, COR_DOURADO)
-    
-    # Título da análise
-    adicionar_texto(slide, "ANÁLISE DE INTELIGÊNCIA ARTIFICIAL", 0.5, 0.9, 8.4, 0.3,
-                    tamanho=12, cor=COR_DOURADO, bold=True, fonte="Arial")
-    
-    # Texto da análise IA
-    adicionar_texto(slide, recomendacoes_ia, 0.5, 1.2, 8.4, 1.2,
-                    tamanho=10, cor=COR_PRETO, fonte="Arial")
-    
-    # Recomendações por cenário
-    recomendacoes = [
-        ("CENÁRIO OTIMISTA", [
-            "Investir 20% do lucro em expansão",
-            "Contratar equipe especializada",
-            "Diversificar fontes de receita"
-        ], COR_DOURADO),
-        ("CENÁRIO REALISTA", [
-            "Manter operações otimizadas",
-            "Focar em eficiência operacional",
-            "Criar reserva de contingência"
-        ], COR_DOURADO),
-        ("CENÁRIO PESSIMISTA", [
-            "Cortar custos não essenciais",
-            "Renegociar contratos",
-            "Focar em receitas recorrentes"
-        ], COR_DOURADO)
-    ]
-    
-    for i, (titulo, recs, cor) in enumerate(recomendacoes):
-        x = 0.5 + (i % 2) * 4.5
-        y = 2.6 + (i // 2) * 1.5
-        
-        # Card
-        adicionar_retangulo(slide, x, y, 4.2, 1.3, COR_BRANCO, cor)
-        adicionar_texto(slide, titulo, x + 0.1, y + 0.05, 4.0, 0.25,
-                        tamanho=9, cor=cor, bold=True, fonte="Arial")
-        
-        # Recomendações
-        for j, rec in enumerate(recs):
-            adicionar_texto(slide, f"• {rec}", x + 0.1, y + 0.35 + j * 0.25, 4.0, 0.2,
-                            tamanho=8, cor=COR_PRETO, fonte="Arial")
-    
-    # Footer
-    adicionar_retangulo(slide, 0, 5.4, 10, 0.1, COR_CINZA_ESC)
+
 
 # ============================================================
 # SLIDE 4 - DRE COMPARATIVO ESTILO PDF
@@ -650,7 +580,6 @@ def gerar_cenarios_com_ia(dados_mensais, nome_empresa, bundle_dir):
     
     receita_atual = sum(d["receita_bruta"] for d in dados_mensais)
     custos_atual = sum(d["custos"] for d in dados_mensais)
-    lucro_atual = sum(d["lucro_operacional"] for d in dados_mensais)
     
     cenarios = [
         {
@@ -817,7 +746,7 @@ def gerar_apresentacao_pptx_pdf(
     # Usar cores personalizadas se fornecidas
     if cores_personalizadas:
         atualizar_cores(cores_personalizadas)
-        print(f"🎨 Cores personalizadas aplicadas!")
+        print("🎨 Cores personalizadas aplicadas!")
 
     print("\n" + "=" * 60)
     print("GERADOR DE APRESENTAÇÃO V2.0 - ESTILO PDF PROFISSIONAL")
@@ -856,7 +785,7 @@ def gerar_apresentacao_pptx_pdf(
 
     logo_existe = os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo_auditar.png"))
     
-    print(f"\n[OK] Apresentação estilo PDF gerada com sucesso!")
+    print("\n[OK] Apresentação estilo PDF gerada com sucesso!")
     print(f"     Arquivo: {nome_arquivo}")
     print(f"     Local: {caminho}")
     print(f"     Estilo: Profissional PDF | Logo: {'SIM' if logo_existe else 'NÃO'}")

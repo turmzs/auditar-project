@@ -43,7 +43,7 @@ class GeradorPDFAnalitico(FPDF):
     def footer(self):
         self.set_y(-15)
         self.set_font('helvetica', 'I', 7)
-        self.cell(0, 10, f'Sistema Auditar Tax & AI - Relatório Gerencial de Resultados', align='C')
+        self.cell(0, 10, 'Sistema Auditar Tax & AI - Relatório Gerencial de Resultados', align='C')
 
     def criar_tabela(self, dados_mensais):
         # Cabeçalho da Tabela (Fundo branco com linhas pretas finas como na imagem)
