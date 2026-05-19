@@ -1033,7 +1033,19 @@ class MainWindow(QMainWindow):
         botoes_layout.addStretch()
 
         grid_entrada.addLayout(botoes_layout, 8, 0)
+        
+        #scroll de pagina completa
+        scroll = QScrollArea()
 
+        scroll.setWidgetResizable(True)
+
+        scroll_content = QWidget()
+
+        scroll_layout = QVBoxLayout(scroll_content)
+
+        scroll_layout.setSpacing(50)
+
+        scroll.setWidget(scroll_content)
         # Conectar sinais para calcular automaticamente
 
         campos_calculo = [
@@ -1085,7 +1097,7 @@ class MainWindow(QMainWindow):
 
         scroll_layout = QVBoxLayout(scroll_content)
 
-        scroll_layout.setSpacing(10)
+        scroll_layout.setSpacing(50)
 
         scroll.setWidget(scroll_content)
 
