@@ -82,5 +82,5 @@ brazilianportuguese.FinishedLabel=O [name] foi instalado com sucesso!%n%nClique 
 // Código Pascal para eventos do instalador
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
-  Result := True;
+  Result := True;     
 end;

@@ -165,7 +165,7 @@ def analisar_cenario_financeiro(dados_mensais):
         cenario = "PREJUIZO"
     elif margem < 5:
         cenario = "LUCRO_BAIXO"
-    elif margem > 20:
+    elif margem >= 30:
         cenario = "LUCRO_ALTO"
     elif ratio_custos > 70:
         cenario = "CUSTOS_ALTOS"
