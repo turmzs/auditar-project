@@ -209,7 +209,7 @@ class CalculadoraImpostos:
         }
 
     @staticmethod
-    def calcular_lucro_real(receita_bruta, custos, despesas, creditos=0):
+    def calcular_lucro_real(receita_bruta, custos, despesas, creditos=0, iss_rate=0.03, icms_rate=0.12):
         """
         Calcula impostos pelo Lucro Real
         Baseado nas regras da Receita Federal
@@ -232,16 +232,18 @@ class CalculadoraImpostos:
         pis_debito = receita_bruta * 0.0165
         cofins_debito = receita_bruta * 0.076
 
-        # Abatimento de créditos (simplificado sobre a mesma alíquota)
-        pis_credito = creditos * 0.0165
-        cofins_credito = creditos * 0.076
+        # 'creditos' is expected to be a monetary amount (R$) representing eligible credits.
+        # Subtract monetary credits directly from debits (do NOT multiply by the rate again).
+        pis_credito = creditos
+        cofins_credito = creditos
 
         pis_final = max(0, pis_debito - pis_credito)
         cofins_final = max(0, cofins_debito - cofins_credito)
 
-        # ISS/ICMS (Informativo)
-        iss = receita_bruta * 0.03
-        icms = (receita_bruta / 1.12) * 0.12
+        # ISS/ICMS (Informativo) - use configurable rates (defaults: ISS 3%, ICMS 12%)
+        iss = receita_bruta * iss_rate
+        # ICMS default is computed as a straight percentage of revenue; if revenues are ICMS-included, callers should pre-adjust.
+        icms = receita_bruta * icms_rate
 
         impostos_sobre_lucro = irpj + csll
         impostos_sobre_faturamento = pis_final + cofins_final

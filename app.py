@@ -110,10 +110,18 @@ class DatabaseManager:
         # Verificar e adicionar colunas se não existirem (migração)
         cursor.execute("PRAGMA table_info(dados_mensais)")
         colunas_dados = [col[1] for col in cursor.fetchall()]
+        # Migração segura: algumas versões anteriores podem ter criado a tabela
+        # sem o campo creditos_pis_cofins; ao iniciar, adicionamos o campo apenas
+        # se ele não existir.
         if "creditos_pis_cofins" not in colunas_dados:
-            cursor.execute(
-                "ALTER TABLE dados_mensais ADD COLUMN creditos_pis_cofins REAL DEFAULT 0"
-            )
+            try:
+                cursor.execute(
+                    "ALTER TABLE dados_mensais ADD COLUMN creditos_pis_cofins REAL DEFAULT 0"
+                )
+            except sqlite3.OperationalError as e:
+                # Se a coluna já existir (condição de corrida) ou se a tabela
+                # estiver inconsistente, não travar a inicialização.
+                print(f"[AVISO] Falha ao adicionar creditos_pis_cofins: {e}")
 
         cursor.execute("PRAGMA table_info(empresas)")
         colunas_emp = [col[1] for col in cursor.fetchall()]
